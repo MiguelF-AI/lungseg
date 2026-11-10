@@ -1,1 +1,15 @@
 /Data
+/storage/
+/.env
+node_modules/
+/.venv/
+/frontend/dist
+/*.nii
+*.nii.gz
+**/__pycache__/
+*.pyc
+*.egg-info/
+**/.DS_Store
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js

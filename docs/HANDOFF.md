@@ -14,9 +14,12 @@ Datos: copiar a `Data/` los archivos que genera el notebook de Colab (`{id}_lung
 
 ## 2. Estado actual
 
-- Último ticket completado: **ninguno**.
-- El repo contiene solo `AGENTS.md`, `opencode.json` y `docs/`.
-- **Siguiente paso recomendado:** ticket **A0** (scaffold).
+- Último ticket completado: **A0** (scaffold).
+- El repo contiene `AGENTS.md`, `opencode.json`, `docs/`, `backend/`, `frontend/`, `pyproject.toml`, `uv.lock`, `README.md`, `.gitignore`.
+- Backend: FastAPI con `/api/health`, CORS para `http://localhost:5173`, escucha en `127.0.0.1:8000`.
+- Frontend: Vite + React + TypeScript con `@niivue/niivue` 0.47.0, proxy `/api → http://localhost:8000`, escucha en `:5173`.
+- Checks obligatorios pasan en limpio (ruff, ruff format, pyright, pytest, `npm run build`).
+- **Siguiente paso recomendado:** ticket **B1** (catálogo de estudios).
 
 ## 3. Trabajo en curso / a medias
 
@@ -24,7 +27,8 @@ _(nada)_
 
 ## 4. Notas, desviaciones y deuda anotada
 
-_(Aquí van las cosas fuera de alcance que el agente vea mientras trabaja, las adaptaciones por diferencias de API de NiiVue y el resultado de V0.)_
+- `uv` no estaba instalado en el entorno; se instaló con `pip install uv` para poder usar `uv sync`. No es una desviación del plan, solo una condición del entorno.
+- Aún no se ha leído la API real de `@niivue/niivue` (regla 08 del plan); se verificará en F3/F4.
 
 ## 5. Entorno de la máquina objetivo
 

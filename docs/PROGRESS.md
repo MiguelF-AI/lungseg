@@ -8,7 +8,7 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 
 | Fase | Ticket | Descripción | Depende de | Estado |
 |------|--------|-------------|------------|--------|
-| 0 | A0 | Scaffold (uv, FastAPI, Vite + React + TS + NiiVue) | — | ⬜ |
+| 0 | A0 | Scaffold (uv, FastAPI, Vite + React + TS + NiiVue) | — | ✅ |
 | 1 | B1 | Catálogo de estudios | A0 | ⬜ |
 | 1 | B2 | Derivados y archivos (ETag/304) | B1 | ⬜ |
 | 1 | B3 | Métricas | B2 | ⬜ |
@@ -39,4 +39,8 @@ Formato de cada entrada (la más reciente arriba):
 - Pendiente / siguiente paso:
 ```
 
-_(Sin checkpoints todavía.)_
+### CP-001 · 2026-11-09 · A0
+- Qué cambió: Scaffold inicial del repositorio. Backend FastAPI con `/api/health`, CORS para `http://localhost:5173`, escucha en `127.0.0.1`; frontend Vite + React + TypeScript con `@niivue/niivue` 0.47.0 y proxy `/api → :8000`; `pyproject.toml` con ruff, pyright, pytest; `.gitignore` con `Data/`, `storage/`, `.env`, `node_modules/`, `.venv/`, `*.nii`, `*.nii.gz`; `README.md` con los comandos de AGENTS.md.
+- Cómo se verificó: `uv run ruff check backend` ✅, `uv run ruff format --check backend` ✅, `uv run pyright` ✅ (0 errores), `uv run pytest` ✅ (1 test pasado), `npm run build` ✅ (tsc + vite). Backend en :8000 responde `{"status":"ok"}`; frontend en :5173 proxytea `/api/health` y muestra `{"status":"ok"}`.
+- Desviaciones del plan y por qué: ninguna. `uv` no estaba instalado en el entorno; se instaló con `pip install uv` para poder usar `uv sync`.
+- Pendiente / siguiente paso: ticket B1 (catálogo de estudios).
