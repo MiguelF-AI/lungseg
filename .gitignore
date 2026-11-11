@@ -13,3 +13,4 @@ node_modules/
 *.tsbuildinfo
 vite.config.d.ts
 vite.config.js
+/docs/reference
