@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import LayerPanel from './LayerPanel'
 import MetricsCard from './MetricsCard'
 import StudyPicker from './StudyPicker'
@@ -7,6 +9,8 @@ export function Sidebar({
 }: {
   className?: string
 }) {
+  const [selectedStudyId, setSelectedStudyId] = useState<string | null>(null)
+
   return (
     <aside
       className={className}
@@ -63,13 +67,13 @@ export function Sidebar({
       </div>
 
       {/* Estudio */}
-      <StudyPicker />
+      <StudyPicker onSelect={setSelectedStudyId} />
 
       {/* Capas */}
-      <LayerPanel />
+      <LayerPanel studyId={selectedStudyId} />
 
       {/* Métricas */}
-      <MetricsCard />
+      <MetricsCard metrics={null} />
 
       {/* Acciones */}
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--ls-border)' }}>
@@ -99,7 +103,7 @@ export function Sidebar({
         <button
           type="button"
           disabled
-          aria-label="Descargar todo (4) (deshabilitado hasta F8)"
+          aria-label="Descargar todo (deshabilitado hasta F8)"
           style={{
             width: '100%',
             padding: '10px',
@@ -113,7 +117,7 @@ export function Sidebar({
             outline: 'none',
           }}
         >
-          Descargar todo (4)
+          Descargar todo
         </button>
       </div>
 
