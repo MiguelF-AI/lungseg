@@ -14,12 +14,12 @@ Datos: copiar a `Data/` los archivos que genera el notebook de Colab (`{id}_lung
 
 ## 2. Estado actual
 
-- Último ticket completado: **A0** (scaffold).
+- Último ticket completado: **B1** (catálogo de estudios).
 - El repo contiene `AGENTS.md`, `opencode.json`, `docs/`, `backend/`, `frontend/`, `pyproject.toml`, `uv.lock`, `README.md`, `.gitignore`.
-- Backend: FastAPI con `/api/health`, CORS para `http://localhost:5173`, escucha en `127.0.0.1:8000`.
+- Backend: FastAPI con `/api/health`, `/api/studies` y `/api/studies/{id}`, CORS para `http://localhost:5173`, escucha en `127.0.0.1:8000`.
 - Frontend: Vite + React + TypeScript con `@niivue/niivue` 0.47.0, proxy `/api → http://localhost:8000`, escucha en `:5173`.
 - Checks obligatorios pasan en limpio (ruff, ruff format, pyright, pytest, `npm run build`).
-- **Siguiente paso recomendado:** ticket **B1** (catálogo de estudios).
+- **Siguiente paso recomendado:** ticket **B2** (derivados y archivos ETag/304).
 
 ## 3. Trabajo en curso / a medias
 
@@ -28,6 +28,8 @@ _(nada)_
 ## 4. Notas, desviaciones y deuda anotada
 
 - `uv` no estaba instalado en el entorno; se instaló con `pip install uv` para poder usar `uv sync`. No es una desviación del plan, solo una condición del entorno.
+- **Desviación B1:** los archivos reales en `Data/` usan sufijos `_lung.nii` / `_cople_lesion.nii` (sin `.gz`), mientras que PLAN §5 especifica `_lung.nii.gz` / `_cople_lesion.nii.gz`. B1 respeta el contrato estricto, así que `GET /api/studies` contra `Data/` real devuelve `[]`. Aceptar `.nii` sin gz requeriría cambiar §5 del plan + schemas + types en el mismo cambio (regla 01); se deja como decisión humana, no se implementó en B1.
+- **Deuda B1:** el espejo TypeScript en `frontend/src/api/types.ts` (contrato §6) queda pendiente para **F2**; no se tocó en este ticket.
 - Aún no se ha leído la API real de `@niivue/niivue` (regla 08 del plan); se verificará en F3/F4.
 
 ## 5. Entorno de la máquina objetivo
