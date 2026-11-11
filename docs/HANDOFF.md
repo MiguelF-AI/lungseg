@@ -14,12 +14,12 @@ Datos: copiar a `Data/` los archivos que genera el notebook de Colab (`{id}_lung
 
 ## 2. Estado actual
 
-- Último ticket completado: **F1** (shell y sistema de diseño). Previo: **B2** (derivados y archivos ETag/304).
+- Último ticket completado: **F2** (cliente API tipado). Previo: **F1** (shell y sistema de diseño).
 - El repo contiene `AGENTS.md`, `opencode.json`, `docs/`, `backend/`, `frontend/`, `pyproject.toml`, `uv.lock`, `README.md`, `.gitignore`.
 - Backend: FastAPI con `/api/health`, `/api/studies`, `/api/studies/{id}` y `GET/HEAD /api/studies/{id}/files/{layer}.nii.gz` (ETag, Last-Modified, Cache-Control: no-cache, 304), CORS para `http://localhost:5173`, escucha en `127.0.0.1:8000`. Genera y cachea `ct.nii.gz`, `lung_right`, `lung_left`, `lesion` en `storage/derived/{id}/` con invalidación por mtime (sidecar `metadata.json`), escritura atómica y candado por estudio.
-- Frontend: Vite + React + TypeScript con `@niivue/niivue` 0.47.0, proxy `/api → http://localhost:8000`, escucha en `:5173`. **F1 añadido:** `styles/tokens.css` (tokens PLAN §7), componentes `Sidebar`, `LayerPanel`, `ViewerToolbar`, `StudyPicker`, `MetricsCard`, `App.tsx` con layout §7 (sidebar 320px, visor placeholder "Visor NiiVue — F3", selector inferior Axial|Coronal|Sagital|Multi|3D), datos simulados (4 capas, estudio "3 / 27", métricas ficticias, acciones deshabilitadas, aviso académico al pie).
+- Frontend: Vite + React + TypeScript con `@niivue/niivue` 0.47.0, proxy `/api → http://localhost:8000`, escucha en `:5173`. **F2 añadido:** `frontend/src/api/types.ts` (espejo de PLAN §6 y schemas.py: LayerInfo, StudySummary, StudyDetail, Metrics), `frontend/src/api/client.ts` (getStudies/getStudy/getMetrics, clase ApiError con status + mensaje, rutas relativas /api/... vía proxy Vite), hooks `frontend/src/hooks/useStudies.ts`, `useStudy.ts`, `useMetrics.ts` (fetch propio, estados carga/error/vacío + reintentar). `StudyPicker` usa lista real de GET /api/studies (contador n/total, ◀▶ funcionales, id abreviado a 8 primeros caracteres, esqueleto/error con "Reintentar"/vacío con instrucciones para copiar a Data/). `LayerPanel` usa capas reales de GET /api/studies/{id} (sólo las disponibles por estudio; una capa inexistente no se muestra). `MetricsCard` mantiene datos simulados con marca "datos de ejemplo" hasta F6. `Sidebar` orquesta `selectedStudyId` y cablea StudyPicker/LayerPanel/MetricsCard; al cambiar de estudio se descarta el anterior. Sin integración NiiVue (F3), `getMetrics`/`useMetrics` definidos pero no llamados (endpoint /metrics es B3).
 - Checks obligatorios pasan en limpio (ruff, ruff format, pyright, pytest, `npm run build`).
-- **Siguiente paso recomendado:** ticket **F2** (cliente API tipado: `types.ts` espejo de §6, `client.ts`, hooks `useStudies`/`useStudy`/`useMetrics`).
+- **Siguiente paso recomendado:** ticket **F3** (componente `NiiViewer`).
 
 ## 3. Trabajo en curso / a medias
 

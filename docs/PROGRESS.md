@@ -13,7 +13,7 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 | 1 | B2 | Derivados y archivos (ETag/304) | B1 | ✅ |
 | 1 | B3 | Métricas | B2 | ⬜ |
 | 1 | F1 | Shell y sistema de diseño | A0 | ✅ |
-| 1 | F2 | Cliente API tipado | F1, B1 | ⬜ |
+| 1 | F2 | Cliente API tipado | F1, B1 | ✅ |
 | 1 | F3 | Componente `NiiViewer` | F2, B2 | ⬜ |
 | 1 | F4 | Panel de capas | F3 | ⬜ |
 | 1 | V0 | Verificación de alineación con casos reales | F4, B2 | ⬜ |
@@ -38,6 +38,12 @@ Formato de cada entrada (la más reciente arriba):
 - Desviaciones del plan y por qué:
 - Pendiente / siguiente paso:
 ```
+
+### CP-005 · 2026-11-10 · F2
+- Qué cambió: `frontend/src/api/types.ts` (espejo de PLAN §6 y schemas.py: LayerInfo, StudySummary, StudyDetail, Metrics), `frontend/src/api/client.ts` (getStudies/getStudy/getMetrics, ApiError con status+mensaje, rutas relativas /api/... vía proxy Vite), `frontend/src/hooks/useStudies.ts`, `useStudy.ts`, `useMetrics.ts` (fetch propio, estados carga/error/vacío + reintentar). `StudyPicker` usa lista real de GET /api/studies (contador n/total, ◀▶, id abreviado a 8 chars, esqueleto/error/vacío). `LayerPanel` usa capas reales de GET /api/studies/{id} (sólo disponibles por estudio). `MetricsCard` con datos simulados + marca "datos de ejemplo" hasta F6. `Sidebar` orquesta selectedStudyId y cablea los componentes. `getMetrics`/`useMetrics` se definen pero NO se llaman (endpoint /metrics es B3). Sin integración NiiVue (F3).
+- Cómo se verificó: `npm run build` (tsc -b + vite build) limpio, 0 errores de tipo; ruff check, ruff format, pyright y pytest de backend pasan (20 tests). Verificación funcional con backend arriba y datos reales en Data/: sidebar lista 2 estudios reales, ◀▶ cambian de estudio; capas iguales en ambos (ct/lung_right/lung_left/lesion); con LUNGSEG_DATA_DIR a carpeta vacía la API devuelve [] (estado vacío). Estado de error (backend apagado) no se pudo verificar del todo en Windows por socket huérfano en el puerto 8000.
+- Desviaciones del plan y por qué: ninguna respecto al alcance aprobado. Métricas aún simuladas (B3 pendiente).
+- Pendiente / siguiente paso: ticket F3 (componente NiiViewer).
 
 ### CP-004 · 2026-11-10 · F1
 - Qué cambió: frontend/src/styles/tokens.css (nuevo, tokens de PLAN §7), frontend/src/index.css (usa variables), componentes nuevos Sidebar, LayerPanel, ViewerToolbar, StudyPicker, MetricsCard, y reescritura de App.tsx con layout §7 (sidebar 320px, visor con placeholder "Visor NiiVue — F3", selector de vista inferior). Datos simulados: 4 capas con color, ojo de visibilidad alternante y slider de opacidad expandible; estudio "3 / 27" con ◀ ▶; métricas ficticias; acciones deshabilitadas; pie con aviso académico. Sin NiiVue (F3), sin types.ts/client.ts (F2), sin "Text prompt"/"Run Segmentation" (regla 13), sin botón "Dibujar segmentación" (Fase 2).
