@@ -1,0 +1,28 @@
+/* Tokens de diseño — PLAN §7 (especificación de UI).
+   Todos los componentes usan estas variables CSS; no hay colores escritos a mano. */
+:root {
+  /* Fondos */
+  --ls-bg: #0a0c14;
+  --ls-surface: #11141f;
+  --ls-surface-elev: #161a28;
+  /* Bordes */
+  --ls-border: #232842;
+  /* Acento violeta */
+  --ls-accent: #6c5ce7;
+  --ls-accent-hover: #8a78f0;
+  /* Texto */
+  --ls-text: #e6e8f2;
+  --ls-text-muted: #8b90a8;
+  /* Colores de capa (según contrato §6 / PLAN §7) */
+  --ls-layer-ct: #cbd5e1;
+  --ls-layer-lung-right: #4169e1;
+  --ls-layer-lung-left: #3cb371;
+  --ls-layer-lesion: #ff2a2a;
+  /* Estados */
+  --ls-focus-ring: #6c5ce7;
+  --ls-disabled-bg: #1b2030;
+  --ls-disabled-text: #4b5266;
+  /* Dimensiones */
+  --ls-sidebar-width: 320px;
+  --ls-radius: 8px;
+}

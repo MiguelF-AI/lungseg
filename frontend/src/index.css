@@ -1,5 +1,16 @@
+@import './styles/tokens.css';
+
 body {
   margin: 0;
-  background: #0a0c14;
-  color: #e6e8f2;
+  background: var(--ls-bg);
+  color: var(--ls-text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  font-size: 14px;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
 }
