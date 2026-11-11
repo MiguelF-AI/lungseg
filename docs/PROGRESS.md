@@ -12,7 +12,7 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 | 1 | B1 | Catálogo de estudios | A0 | ✅ |
 | 1 | B2 | Derivados y archivos (ETag/304) | B1 | ✅ |
 | 1 | B3 | Métricas | B2 | ⬜ |
-| 1 | F1 | Shell y sistema de diseño | A0 | ⬜ |
+| 1 | F1 | Shell y sistema de diseño | A0 | ✅ |
 | 1 | F2 | Cliente API tipado | F1, B1 | ⬜ |
 | 1 | F3 | Componente `NiiViewer` | F2, B2 | ⬜ |
 | 1 | F4 | Panel de capas | F3 | ⬜ |
@@ -38,6 +38,12 @@ Formato de cada entrada (la más reciente arriba):
 - Desviaciones del plan y por qué:
 - Pendiente / siguiente paso:
 ```
+
+### CP-004 · 2026-11-10 · F1
+- Qué cambió: frontend/src/styles/tokens.css (nuevo, tokens de PLAN §7), frontend/src/index.css (usa variables), componentes nuevos Sidebar, LayerPanel, ViewerToolbar, StudyPicker, MetricsCard, y reescritura de App.tsx con layout §7 (sidebar 320px, visor con placeholder "Visor NiiVue — F3", selector de vista inferior). Datos simulados: 4 capas con color, ojo de visibilidad alternante y slider de opacidad expandible; estudio "3 / 27" con ◀ ▶; métricas ficticias; acciones deshabilitadas; pie con aviso académico. Sin NiiVue (F3), sin types.ts/client.ts (F2), sin "Text prompt"/"Run Segmentation" (regla 13), sin botón "Dibujar segmentación" (Fase 2).
+- Cómo se verificó: `npm run build` (tsc -b + vite build) limpio, 0 errores de tipo; `npm run dev` respondió HTTP 200 en http://localhost:5173 sin errores de consola visibles al cargar. Proceso Vite detenido tras la verificación.
+- Desviaciones del plan y por qué: ninguna respecto al alcance aprobado. Pendiente pendiente de verificación visual real a 1280×720 y 1920×1080 (no se dispuso de navegador para capturas; ver resumen al humano).
+- Pendiente / siguiente paso: ticket F2 (cliente API tipado, types.ts + client.ts).
 
 ### CP-002 · 2026-11-10 · B1
 - Qué cambió: `backend/lungseg_api/config.py` (`get_data_dir()` lee `LUNGSEG_DATA_DIR`, default `./Data`), `schemas.py` (`LayerInfo`, `StudySummary`, `StudyDetail` + `ID_REGEX ^[A-Za-z0-9_-]{1,64}$`), `catalog.py` (`list_studies`/`get_study` sin leer NIfTI, valida id antes de construir `Path`), `main.py` (`GET /api/studies` y `GET /api/studies/{id}` con 404 para id inválido/inexistente), `tests/test_catalog.py` (ids válidos/inválidos, sin CT, sin lesión, traversal→404). Rama `feat/B1-catalog`, commit `feat(B1): catalogo de estudios`.
