@@ -11,8 +11,8 @@ from lungseg_api.config import get_data_dir
 from lungseg_api.schemas import ID_REGEX, LayerInfo, StudyDetail, StudySummary
 
 CT_EXTS = (".nii", ".nii.gz")
-LESION_SUFFIX = "_cople_lesion.nii.gz"
-LUNG_SUFFIX = "_lung.nii.gz"
+LUNG_SUFFIXES = ("_lung.nii.gz", "_lung.nii")
+LESION_SUFFIXES = ("_cople_lesion.nii.gz", "_cople_lesion.nii")
 
 
 def _valid_id(study_id: str) -> bool:
@@ -28,17 +28,42 @@ def _find_ct(data_dir: str, study_id: str) -> Optional[str]:
     return None
 
 
+def _find_lung(data_dir: str, study_id: str) -> Optional[str]:
+    """Devuelve el nombre del archivo de pulmón fuente si existe, o None."""
+    for suffix in LUNG_SUFFIXES:
+        path = os.path.join(data_dir, f"{study_id}{suffix}")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _find_lesion(data_dir: str, study_id: str) -> Optional[str]:
+    """Devuelve el nombre del archivo de lesión fuente si existe, o None."""
+    for suffix in LESION_SUFFIXES:
+        path = os.path.join(data_dir, f"{study_id}{suffix}")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _strip_lung_suffix(entry: str) -> Optional[str]:
+    """Quita el sufijo de archivo de pulmón de una entrada de directorio."""
+    for suffix in LUNG_SUFFIXES:
+        if entry.endswith(suffix):
+            return entry[: -len(suffix)]
+    return None
+
+
 def _list_valid_studies(data_dir: str) -> List[str]:
     """Lista ids válidos que tienen archivo de pulmón, ignorando inválidos."""
     if not os.path.isdir(data_dir):
         return []
     studies: List[str] = []
     for entry in os.listdir(data_dir):
-        if not entry.endswith(LUNG_SUFFIX):
+        study_id = _strip_lung_suffix(entry)
+        if study_id is None or not _valid_id(study_id):
             continue
-        study_id = entry[: -len(LUNG_SUFFIX)]
-        if _valid_id(study_id):
-            studies.append(study_id)
+        studies.append(study_id)
     studies.sort()
     return studies
 
@@ -60,10 +85,9 @@ def _layers_for(data_dir: str, study_id: str) -> List[str]:
     layers: List[str] = []
     if _find_ct(data_dir, study_id) is not None:
         layers.append("ct")
-    # El estudio existe si hay _lung.nii.gz, así que siempre tiene ambos pulmones.
+    # El estudio existe si hay _lung.nii(.gz), así que siempre tiene ambos pulmones.
     layers.extend(["lung_right", "lung_left"])
-    lesion_path = os.path.join(data_dir, f"{study_id}{LESION_SUFFIX}")
-    if os.path.isfile(lesion_path):
+    if _find_lesion(data_dir, study_id) is not None:
         layers.append("lesion")
     return layers
 
@@ -76,7 +100,7 @@ def get_study(study_id: str, data_dir: Optional[str] = None) -> StudyDetail:
     if not _valid_id(study_id):
         raise ValueError(f"Id de estudio inválido: {study_id!r}")
 
-    if not os.path.isfile(os.path.join(data_dir, f"{study_id}{LUNG_SUFFIX}")):
+    if _find_lung(data_dir, study_id) is None:
         raise ValueError(f"Estudio no encontrado: {study_id!r}")
 
     layers = _layers_for_detail(data_dir, study_id)
@@ -85,7 +109,7 @@ def get_study(study_id: str, data_dir: Optional[str] = None) -> StudyDetail:
 
 def _layers_for_detail(data_dir: str, study_id: str) -> List[LayerInfo]:
     ct_name = _find_ct(data_dir, study_id)
-    lesion_path = os.path.join(data_dir, f"{study_id}{LESION_SUFFIX}")
+    lesion_path = _find_lesion(data_dir, study_id)
 
     layers: List[LayerInfo] = []
     if ct_name is not None:
@@ -116,7 +140,7 @@ def _layers_for_detail(data_dir: str, study_id: str) -> List[LayerInfo]:
             url=f"/api/studies/{study_id}/files/lung_left.nii.gz",
         )
     )
-    if os.path.isfile(lesion_path):
+    if lesion_path is not None:
         layers.append(
             LayerInfo(
                 key="lesion",

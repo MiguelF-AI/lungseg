@@ -68,21 +68,22 @@ Layout plano (coincide con lo que produce el notebook; no hay que renombrar nada
 ```
 Data/
 ├── {id}.nii | {id}.nii.gz           # CT original (opcional)
-├── {id}_lung.nii.gz                 # etiquetas 1=derecho, 2=izquierdo
-└── {id}_cople_lesion.nii.gz         # binaria (opcional)
+├── {id}_lung.nii | {id}_lung.nii.gz # etiquetas 1=derecho, 2=izquierdo
+└── {id}_cople_lesion.nii | {id}_cople_lesion.nii.gz  # binaria (opcional)
 
 storage/derived/{id}/                # generado por la app
 ├── ct.nii.gz
 ├── lung_right.nii.gz   (uint8, 0/1)
 ├── lung_left.nii.gz    (uint8, 0/1)
 ├── lesion.nii.gz       (uint8, 0/1)
-└── metrics.json        # incluye mtimes de las fuentes para invalidar
+└── metadata.json       # mtimes de las fuentes por capa (invalidación)
 ```
 
-- **Descubrimiento:** un estudio existe si hay `{id}_lung.nii.gz`. `id` = el nombre antes de `_lung.nii`.
+- **Descubrimiento:** un estudio existe si hay `{id}_lung.nii` o `{id}_lung.nii.gz`. `id` = el nombre antes del sufijo `_lung`.
 - **Validación de `id`:** regex `^[A-Za-z0-9_-]{1,64}$`; si no coincide, se ignora el archivo (y la API responde 404).
 - **`layer` válidos:** `ct`, `lung_right`, `lung_left`, `lesion`. Cualquier otro → 404.
-- Los derivados mantienen **la misma geometría (affine y shape)** que su fuente.
+- Los derivados mantienen **la misma geometría (affine y shape)** que su fuente y se escriben siempre como `.nii.gz`.
+- Las fuentes se aceptan tanto sin comprimir (`.nii`) como comprimidas (`.nii.gz`); la CT derivada se comprime una sola vez (gzip nivel 4) y se cachea.
 
 ## 6. Contrato de API (prefijo `/api`)
 

@@ -35,7 +35,9 @@ def test_list_studies_valid_and_invalid(tmp_path, monkeypatch):
 
 def test_list_studies_layers(tmp_path, monkeypatch):
     monkeypatch.setenv("LUNGSEG_DATA_DIR", str(tmp_path))
-    _make_study(tmp_path, "solo_lung", with_ct=False, with_lesion=False)  # sin CT, sin lesión
+    _make_study(
+        tmp_path, "solo_lung", with_ct=False, with_lesion=False
+    )  # sin CT, sin lesión
     _make_study(tmp_path, "con_todo")
 
     response = client.get("/api/studies")

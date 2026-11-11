@@ -10,7 +10,7 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 |------|--------|-------------|------------|--------|
 | 0 | A0 | Scaffold (uv, FastAPI, Vite + React + TS + NiiVue) | — | ✅ |
 | 1 | B1 | Catálogo de estudios | A0 | ✅ |
-| 1 | B2 | Derivados y archivos (ETag/304) | B1 | ⬜ |
+| 1 | B2 | Derivados y archivos (ETag/304) | B1 | ✅ |
 | 1 | B3 | Métricas | B2 | ⬜ |
 | 1 | F1 | Shell y sistema de diseño | A0 | ⬜ |
 | 1 | F2 | Cliente API tipado | F1, B1 | ⬜ |
@@ -48,3 +48,9 @@ Formato de cada entrada (la más reciente arriba):
 - Cómo se verificó: `uv run ruff check backend` ✅, `uv run ruff format --check backend` ✅, `uv run pyright` ✅ (0 errores), `uv run pytest` ✅ (1 test pasado), `npm run build` ✅ (tsc + vite). Backend en :8000 responde `{"status":"ok"}`; frontend en :5173 proxytea `/api/health` y muestra `{"status":"ok"}`.
 - Desviaciones del plan y por qué: ninguna. `uv` no estaba instalado en el entorno; se instaló con `pip install uv` para poder usar `uv sync`.
 - Pendiente / siguiente paso: ticket B1 (catálogo de estudios).
+
+### CP-003 · 2026-11-10 · B2
+- Qué cambió: `pyproject.toml` (+nibabel 5.5.0, numpy 2.5.4); `config.py` (`get_storage_dir()`); `catalog.py` (acepta fuentes `.nii` y `.nii.gz`); `derive.py` (nuevo: `lung_right=(lung==1)`, `lung_left=(lung==2)`, `lesion=(lesion>0)`, uint8, affine/shape iguales a la fuente; `ct` comprimido gzip nivel 4 una sola vez; sidecar `metadata.json` con mtime por capa para invalidación granular; escritura atómica temp+`os.replace`; candado `threading.Lock` por estudio; una CT completa en memoria a la vez con `del`); `routers/files.py` (nuevo: `GET/HEAD /api/studies/{id}/files/{layer}.nii.gz` con whitelist de layer, validación id/layer antes de construir Path, 404 sin rutas absolutas, `FileResponse` streaming, cabeceras `ETag`/`Last-Modified`/`Cache-Control: no-cache`, `If-None-Match` → 304 sin cuerpo); `main.py` (incluye router); `docs/PLAN.md` §5 (sufijos `.nii` y `.nii.gz` aceptados, gzip nivel 4, sidecar `metadata.json`); `tests/test_derive.py` (nuevo: 14 tests sintéticos con nibabel en tmp_path).
+- Cómo se verificó: `uv run ruff check backend` ✅, `uv run ruff format --check backend` ✅, `uv run pyright` ✅ (0 errores), `uv run pytest` ✅ (20 tests pasados). Verificación real contra `Data/` (estudio `33cf78a82e5d1f3a98931b3fe5d31a40`): 1ª y 2ª petición por `curl`/httpx para ct, lung_right, lung_left, lesion; segunda petición con If-None-Match → 304 sin cuerpo; pesos: ct 149 MB (1era 7.2 s), lung_right 459 KB (1.0 s), lung_left 432 KB (0.9 s), lesion 313 KB (3.2 s); HEAD con ETag/Last-Modified/Cache-Control OK.
+- Desviaciones del plan y por qué: §5 acepta ahora fuentes `.nii` (sin gz) además de `.nii.gz` porque los archivos reales de `Data/` usan `.nii`; se documenta en PLAN §5 y en HANDOFF §4 (mismo cambio que exige la regla 01; ningún contrato §6 ni schemas.py/types.ts cambió). Nivel de gzip 4 elegido por compromiso rapidez/tamaño en CTs de cientos de MB con 16 GB RAM.
+- Pendiente / siguiente paso: ticket B3 (métricas).

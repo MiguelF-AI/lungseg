@@ -4,9 +4,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from lungseg_api.catalog import get_study, list_studies
+from lungseg_api.routers.files import router as files_router
 from lungseg_api.schemas import StudyDetail, StudySummary
 
 app = FastAPI(title="LungSeg API")
+app.include_router(files_router)
 
 app.add_middleware(
     CORSMiddleware,
