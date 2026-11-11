@@ -14,7 +14,7 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 | 1 | B3 | Métricas | B2 | ⬜ |
 | 1 | F1 | Shell y sistema de diseño | A0 | ✅ |
 | 1 | F2 | Cliente API tipado | F1, B1 | ✅ |
-| 1 | F3 | Componente `NiiViewer` | F2, B2 | ⬜ |
+| 1 | F3 | Componente `NiiViewer` | F2, B2 | ✅ |
 | 1 | F4 | Panel de capas | F3 | ⬜ |
 | 1 | V0 | Verificación de alineación con casos reales | F4, B2 | ⬜ |
 | 1 | F6 | Métricas y «Centrar en lesión» | F3, B3 | ⬜ |
@@ -38,6 +38,12 @@ Formato de cada entrada (la más reciente arriba):
 - Desviaciones del plan y por qué:
 - Pendiente / siguiente paso:
 ```
+
+### CP-006 · 2026-11-10 · F3
+- Qué cambió: `frontend/src/components/NiiViewer.tsx` (nuevo), `frontend/src/hooks/useNiivue.ts` (nuevo), `frontend/src/App.tsx` (estado selectedStudyId/viewMode levantado a App y NiiViewer conectado; `useStudy` llamado con el id actual), `frontend/src/components/Sidebar.tsx` y `frontend/src/components/ViewerToolbar.tsx` (reciben selectedStudyId/viewMode por props en lugar de estado propio). NiiViewer monta una única instancia NiiVue sobre un único canvas (attachToCanvas + init), carga la CT derivada y las máscaras disponibles de StudyDetail.layers (loadVolumes) con colormap gris y ventana pulmonar (-1400..100 HU) para la CT y colormaps personalizados de un solo color (#4169e1/@0.25 pulmón derecho, #3cb371/@0.25 izquierdo, #ff2a2a/@0.8 lesión), crosshair rojo, convención neurológica, letras de orientación, y lectura de posición arriba-derecha (mm, vóxel, HU, nombre de capa). Cambiar de modo (Axial/Coronal/Sagital/Multi/3D) usa setSliceType SIN recargar volúmenes. Casos de React gestionados: cleanup en unmount (StrictMode), descarte de cargas obsoletas al cambiar rápido de estudio (latestStudyRef), estados "Cargando tomografía…" y error con botón "Reintentar", aviso "este estudio no tiene tomografía original" si no hay capa ct, aviso WebGL2 no disponible. No se conecta visibilidad/opacidad de LayerPanel (F4), sin métricas (F6), sin atajos (F5), sin localStorage.
+- Cómo se verificó: `npm run build` (tsc -b + vite build) limpio, 0 errores de tipo. Backend uvicorn :8000 y Vite :5173 arrancados; `GET /api/health` → 200; `GET /api/studies` → 2 estudios reales con ct/lung_right/lung_left/lesion; `GET /api/studies/{id}` → detalle con urls y colores; `HEAD /.../files/ct.nii.gz` → 200 con ETag/Last-Modified/Cache-Control: no-cache, CT derivada 149 MB. No se dispuso de navegador para abrir la UI, por lo que NO se verificó visualmente: alineación 2D, panel 3D, cambio de modo sin peticiones nuevas, 10 cambios de estudio, estudio sin CT, tiempos primera/segunda carga. Estos ítems quedan para verificación visual con navegador (ver "NO pude verificar" abajo).
+- Desviaciones del plan y por qué: Ninguna respecto al alcance de F3. La API de NiiVue 0.47.0 no exporta `destroy()`/`dispose()` ni `ColorMap` como type (se usa ReturnType<NVImageFromUrlOptions> y un type local SingleColorColormap); no hay método público para detectar WebGL2 (se usa canvas.getContext('webgl2')). Documentado en HANDOFF §4.
+- Pendiente / siguiente paso: verificación visual con navegador (apuntar a estudio real de Data/, comprobar alineación, 3D, 5 modos, 10 cambios, estudio sin CT, tiempos de carga) y luego ticket F4 (panel de capas con visibilidad/opacidad).
 
 ### CP-005 · 2026-11-10 · F2
 - Qué cambió: `frontend/src/api/types.ts` (espejo de PLAN §6 y schemas.py: LayerInfo, StudySummary, StudyDetail, Metrics), `frontend/src/api/client.ts` (getStudies/getStudy/getMetrics, ApiError con status+mensaje, rutas relativas /api/... vía proxy Vite), `frontend/src/hooks/useStudies.ts`, `useStudy.ts`, `useMetrics.ts` (fetch propio, estados carga/error/vacío + reintentar). `StudyPicker` usa lista real de GET /api/studies (contador n/total, ◀▶, id abreviado a 8 chars, esqueleto/error/vacío). `LayerPanel` usa capas reales de GET /api/studies/{id} (sólo disponibles por estudio). `MetricsCard` con datos simulados + marca "datos de ejemplo" hasta F6. `Sidebar` orquesta selectedStudyId y cablea los componentes. `getMetrics`/`useMetrics` se definen pero NO se llaman (endpoint /metrics es B3). Sin integración NiiVue (F3).

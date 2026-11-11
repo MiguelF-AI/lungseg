@@ -1,16 +1,16 @@
-import { useState } from 'react'
-
 import LayerPanel from './LayerPanel'
 import MetricsCard from './MetricsCard'
 import StudyPicker from './StudyPicker'
 
 export function Sidebar({
   className = '',
+  selectedStudyId,
+  onStudySelect,
 }: {
   className?: string
+  selectedStudyId: string | null
+  onStudySelect: (id: string) => void
 }) {
-  const [selectedStudyId, setSelectedStudyId] = useState<string | null>(null)
-
   return (
     <aside
       className={className}
@@ -67,7 +67,7 @@ export function Sidebar({
       </div>
 
       {/* Estudio */}
-      <StudyPicker onSelect={setSelectedStudyId} />
+      <StudyPicker onSelect={onStudySelect} />
 
       {/* Capas */}
       <LayerPanel studyId={selectedStudyId} />

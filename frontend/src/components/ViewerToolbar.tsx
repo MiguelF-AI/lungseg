@@ -1,21 +1,18 @@
-import { useState } from 'react'
-
 export type ViewMode = 'Axial' | 'Coronal' | 'Sagital' | 'Multi' | '3D'
 
 const VIEW_MODES: ViewMode[] = ['Axial', 'Coronal', 'Sagital', 'Multi', '3D']
 
 export function ViewerToolbar({
   className = '',
-  onChange,
+  viewMode,
+  onViewModeChange,
 }: {
   className?: string
-  onChange?: (mode: ViewMode) => void
+  viewMode: ViewMode
+  onViewModeChange: (mode: ViewMode) => void
 }) {
-  const [mode, setMode] = useState<ViewMode>('Multi')
-
   const handleSelect = (next: ViewMode) => {
-    setMode(next)
-    onChange?.(next)
+    onViewModeChange(next)
   }
 
   return (
@@ -36,7 +33,7 @@ export function ViewerToolbar({
         <button
           key={m}
           type="button"
-          aria-pressed={mode === m}
+          aria-pressed={viewMode === m}
           onClick={() => handleSelect(m)}
           style={{
             padding: '6px 10px',
@@ -44,11 +41,11 @@ export function ViewerToolbar({
             fontWeight: 500,
             borderRadius: 'var(--ls-radius)',
             border: 'none',
-            background: mode === m ? 'var(--ls-accent)' : 'transparent',
-            color: mode === m ? '#ffffff' : 'var(--ls-text-muted)',
+            background: viewMode === m ? 'var(--ls-accent)' : 'transparent',
+            color: viewMode === m ? '#ffffff' : 'var(--ls-text-muted)',
             cursor: 'pointer',
             outline: 'none',
-            boxShadow: mode === m ? '0 0 0 2px var(--ls-focus-ring)' : 'none',
+            boxShadow: viewMode === m ? '0 0 0 2px var(--ls-focus-ring)' : 'none',
           }}
         >
           {m}
