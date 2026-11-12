@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { getStudies } from '../api/client'
 import type { StudySummary } from '../api/types'
@@ -39,6 +39,11 @@ export function useStudies(): UseStudiesResult {
 
   const refetch = useCallback(() => {
     return load()
+  }, [load])
+
+  // Lanzar la petición al montar, siempre y sin depender de ningún id.
+  useEffect(() => {
+    void load()
   }, [load])
 
   return { studies, loading, error, refetch }

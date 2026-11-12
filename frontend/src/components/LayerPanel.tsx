@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { useStudy } from '../hooks/useStudy'
 import type { LayerInfo } from '../api/types'
@@ -22,9 +22,9 @@ export function LayerPanel({
   studyId,
 }: LayerPanelProps) {
   const { study, loading, error, refetch } = useStudy()
-  const [visible, setVisible] = useState<Record<string, boolean>>({})
-  const [opacity, setOpacity] = useState<Record<string, number>>({})
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [userVisible, setUserVisible] = useState<Record<string, boolean>>({})
+  const [userOpacity, setUserOpacity] = useState<Record<string, number>>({})
+  const [userExpanded, setUserExpanded] = useState<Record<string, boolean>>({})
 
   // (Opcional) reintentar cuando falla la carga del estudio.
   const handleRetry = () => {
@@ -33,39 +33,56 @@ export function LayerPanel({
     }
   }
 
-  const layers: LayerInfo[] = study?.layers ?? []
-
-  // Inicializar visibilidad/opacidad de las capas disponibles.
+  // Cargar el detalle del estudio cuando cambia el id seleccionado.
+  // `refetch` es estable (useCallback sin deps); `studyId` solo cambia al
+  // seleccionar otro estudio, así que no hay bucle.
   useEffect(() => {
-    const nextVisible: Record<string, boolean> = {}
-    const nextOpacity: Record<string, number> = {}
-    const nextExpanded: Record<string, boolean> = {}
-    const defaults: Record<string, number> = {
+    if (!studyId) return
+    void refetch(studyId)
+  }, [studyId, refetch])
+
+  // Capas del estudio, estabilizadas por referencia para no recrear el array
+  // en cada render (cuando study es null, `?? []` devolvería un array nuevo
+  // cada vez y podría disparar ciclos de efecto infinitos).
+  const layers: LayerInfo[] = useMemo(() => study?.layers ?? [], [study])
+
+  // Valores por defecto de visibilidad/opacidad/expansión derivados de las
+  // capas disponibles. Se calculan durante el render, nunca en un useEffect.
+  const defaults = useMemo(() => {
+    const v: Record<string, boolean> = {}
+    const o: Record<string, number> = {}
+    const e: Record<string, boolean> = {}
+    const defOpacity: Record<string, number> = {
       ct: 1,
       lung_right: 0.25,
       lung_left: 0.25,
       lesion: 0.8,
     }
     for (const layer of layers) {
-      nextVisible[layer.key] = true
-      nextOpacity[layer.key] = defaults[layer.key] ?? 1
-      nextExpanded[layer.key] = false
+      v[layer.key] = true
+      o[layer.key] = defOpacity[layer.key] ?? 1
+      e[layer.key] = false
     }
-    setVisible(nextVisible)
-    setOpacity(nextOpacity)
-    setExpanded(nextExpanded)
+    return { v, o, e }
   }, [layers])
 
+  // Estado final: valores por defecto más los cambios del usuario. Los
+  // cambios del usuario solo se guardan en el estado de usuario; se
+  // reinician al cambiar de estudio mediante key={studyId} en el padre.
+  const visible = { ...defaults.v, ...userVisible }
+  const opacity = { ...defaults.o, ...userOpacity }
+  const expanded = { ...defaults.e, ...userExpanded }
+
   const toggleVisibility = (key: string) => {
-    setVisible((prev) => ({ ...prev, [key]: !prev[key] }))
+    setUserVisible((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
   const setOpacityFor = (key: string, value: number) => {
-    setOpacity((prev) => ({ ...prev, [key]: value }))
+    setUserOpacity((prev) => ({ ...prev, [key]: value }))
   }
 
   const toggleExpanded = (key: string) => {
-    setExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
+    setUserExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
   // Esqueleto de carga.
@@ -369,7 +386,7 @@ export function LayerPanel({
               outline: 'none',
             }}
           >
-            {expanded[layer.key] ? '▲ contraer' : '▼ opacity'}
+            {expanded[layer.key] ? '▲ contraer' : '▼ Opacidad'}
           </button>
         </div>
       ))}

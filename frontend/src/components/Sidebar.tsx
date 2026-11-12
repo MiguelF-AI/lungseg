@@ -69,8 +69,8 @@ export function Sidebar({
       {/* Estudio */}
       <StudyPicker onSelect={onStudySelect} />
 
-      {/* Capas */}
-      <LayerPanel studyId={selectedStudyId} />
+      {/* Capas (se reinicia el estado al cambiar de estudio). */}
+      <LayerPanel key={selectedStudyId} studyId={selectedStudyId} />
 
       {/* Métricas */}
       <MetricsCard metrics={null} />

@@ -12,8 +12,10 @@ import { useNiivue, type ViewMode } from '../hooks/useNiivue'
  * posición del crosshair en una esquina del visor.
  *
  * Casos de React gestionados:
- *  - StrictMode monta/desmonta dos veces en dev: la limpieza libera la
- *    instancia anterior para no dejar dos NiiVue sobre el mismo canvas.
+ *  - StrictMode monta/desmonta dos veces en dev: la instancia NiiVue se
+ *    crea una sola vez por canvas (useRef) y no se usa hasta que
+ *    attachToCanvas + init hayan terminado; tras el doble montaje queda
+ *    UNA sola instancia válida.
  *  - Cambio rápido de estudio: solo el último estudio solicitado termina
  *    pintándose; se liberan los volúmenes del estudio anterior primero.
  *  - Estados visibles de carga y error con botón "Reintentar".
@@ -37,25 +39,30 @@ export function NiiViewer({
     location,
     loadStudy,
     setViewMode,
-    cleanup,
   } = useNiivue()
 
   const [retrying, setRetrying] = useState(false)
 
   const hasCt = study?.layers.some((l) => l.key === 'ct') ?? false
 
+  /**
+   * Reintentar: reejecuta realmente la inicialización (si la instancia se
+   * perdió) y la carga del estudio actual. loadStudy espera a
+   * ensureInitialized antes de cargar volúmenes.
+   */
   const retry = useCallback(() => {
     setRetrying(true)
     retryCountRef.current = (retryCountRef.current || 0) + 1
-    if (study && nv) {
+    if (study) {
       void loadStudy(study.id, study.layers)
     }
     setRetrying(false)
-  }, [study, nv, loadStudy])
+  }, [study, loadStudy])
 
   // Al cambiar de estudio, liberar los volúmenes del anterior y cargar el nuevo.
+  // loadStudy internamente llama a clearVolumes() antes de cargar, así que no
+  // hace falta destruir la instancia aquí.
   useEffect(() => {
-    cleanup()
     if (!study) {
       setRetrying(false)
       return
@@ -65,7 +72,7 @@ export function NiiViewer({
       return
     }
     void loadStudy(study.id, study.layers)
-  }, [study, hasCt, cleanup, loadStudy])
+  }, [study, hasCt, loadStudy])
 
   // Aplicar el modo de vista cuando cambie (sin recargar volúmenes).
   useEffect(() => {
@@ -146,72 +153,10 @@ export function NiiViewer({
     )
   }
 
-  // Estado de carga mientras se inicializan los volúmenes.
-  if (!ready && !error) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100%',
-          color: 'var(--ls-text-muted)',
-          background: 'var(--ls-bg)',
-        }}
-      >
-        <div style={{ display: 'inline-block', fontSize: 13, marginBottom: 8 }}>
-          Cargando tomografía…
-        </div>
-      </div>
-    )
-  }
-
-  // Estado de error con botón de reintentar.
-  if (error) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100%',
-          color: 'var(--ls-text)',
-          background: 'var(--ls-bg)',
-          textAlign: 'center',
-          padding: 24,
-          gap: 10,
-        }}
-      >
-        <div style={{ fontSize: 15, fontWeight: 700, maxWidth: 420, lineHeight: 1.5 }}>
-          No se pudo cargar el visor
-        </div>
-        <p style={{ fontSize: 13, color: 'var(--ls-text-muted)', maxWidth: 420, lineHeight: 1.5 }}>
-          {error}
-        </p>
-        <button
-          type="button"
-          disabled={retrying}
-          onClick={retry}
-          style={{
-            padding: '8px 14px',
-            fontSize: 13,
-            fontWeight: 500,
-            border: '1px solid var(--ls-accent)',
-            borderRadius: 'var(--ls-radius)',
-            background: retrying ? 'var(--ls-surface-elev)' : 'var(--ls-accent)',
-            color: '#ffffff',
-            cursor: retrying ? 'not-allowed' : 'pointer',
-            outline: 'none',
-          }}
-        >
-          {retrying ? 'Reintentando…' : 'Reintentar'}
-        </button>
-      </div>
-    )
-  }
-
+  // El canvas se renderiza SIEMPRE; los estados de carga y error se
+  // superponen encima, nunca condicionan su existencia. Así la instancia
+  // de NiiVue encuentra el canvas en el DOM desde el primer render y
+  // puede inicializarse (attachToCanvas + init) sin deadlock.
   return (
     <div
       style={{
@@ -235,6 +180,68 @@ export function NiiViewer({
           background: '#0a0c14',
         }}
       />
+
+      {/* Estado de carga mientras se inicializan los volúmenes. */}
+      {!ready && !error && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            color: 'var(--ls-text-muted)',
+            background: 'var(--ls-bg)',
+          }}
+        >
+          <div style={{ display: 'inline-block', fontSize: 13, marginBottom: 8 }}>
+            Cargando tomografía…
+          </div>
+        </div>
+      )}
+
+      {/* Estado de error con botón de reintentar. */}
+      {error && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            color: 'var(--ls-text)',
+            background: 'var(--ls-bg)',
+            textAlign: 'center',
+            padding: 24,
+            gap: 10,
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 700, maxWidth: 420, lineHeight: 1.5 }}>
+            No se pudo cargar el visor
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--ls-text-muted)', maxWidth: 420, lineHeight: 1.5 }}>
+            {error}
+          </p>
+          <button
+            type="button"
+            disabled={retrying}
+            onClick={retry}
+            style={{
+              padding: '8px 14px',
+              fontSize: 13,
+              fontWeight: 500,
+              border: '1px solid var(--ls-accent)',
+              borderRadius: 'var(--ls-radius)',
+              background: retrying ? 'var(--ls-surface-elev)' : 'var(--ls-accent)',
+              color: '#ffffff',
+              cursor: retrying ? 'not-allowed' : 'pointer',
+              outline: 'none',
+            }}
+          >
+            {retrying ? 'Reintentando…' : 'Reintentar'}
+          </button>
+        </div>
+      )}
 
       {/* Lectura de posición: esquina superior derecha del visor. */}
       {location && (
