@@ -109,7 +109,8 @@ storage/derived/{id}/                # generado por la app
     { "key":"ct",         "label":"Tomografía",       "kind":"base", "color":null,      "url":"/api/studies/…/files/ct.nii.gz" },
     { "key":"lung_right", "label":"Pulmón derecho",   "kind":"mask", "color":"#4169e1", "url":"…" },
     { "key":"lung_left",  "label":"Pulmón izquierdo", "kind":"mask", "color":"#3cb371", "url":"…" },
-    { "key":"lesion",     "label":"Tejido dañado",    "kind":"mask", "color":"#ff2a2a", "url":"…" } ] }
+    { "key":"lesion",     "label":"Tejido dañado",    "kind":"mask", "color":"#ff2a2a", "url":"…" } ],
+  "lesion_pct": 3.1, "lesion_l": 0.12 }   // solo desde métricas ya cacheadas; null si no hay
 
 // Metrics   (volúmenes en litros; centroide en mm de mundo NIfTI)
 { "lung_right_l": 2.1, "lung_left_l": 1.8, "lung_total_l": 3.9,
@@ -117,6 +118,11 @@ storage/derived/{id}/                # generado por la app
   "lesion_by_lung_pct": { "right": 3.9, "left": 2.1 },
   "lesion_components": 14,
   "lesion_centroid_mm": [x, y, z] }          // null si no hay lesión
+
+// lesion_by_lung_pct: cada vóxel de lesión se asigna al pulmón cuya máscara rellenada por corte axial
+// (binary_fill_holes 2D; R231 deja huecos con consolidación densa) lo contiene; el denominador son los
+// vóxeles crudos de ese pulmón. `lesion_pct_of_lung` usa la fórmula del notebook (vóxeles de lesión /
+// vóxeles crudos de ambos pulmones).
 ```
 
 Errores: 404 (id/layer inexistente o inválido), 422 (validación), 500 sin filtrar rutas absolutas. La app corre solo en `127.0.0.1`; CORS solo para `http://localhost:5173` en desarrollo.

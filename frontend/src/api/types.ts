@@ -30,6 +30,8 @@ export interface StudyDetail {
   shape: number[] | null
   spacing_mm: number[] | null
   layers: LayerInfo[]
+  lesion_pct: number | null
+  lesion_l: number | null
 }
 
 export interface Metrics {
