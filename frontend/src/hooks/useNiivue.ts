@@ -1,8 +1,91 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Niivue, SLICE_TYPE, type NiiVueLocation, type NiiVueLocationValue, NVImageFromUrlOptions } from '@niivue/niivue'
 
+import type { LayerInfo } from '../api/types'
+import {
+  DEFAULT_CT_WINDOW,
+  DEFAULT_OPACITY,
+  windowToRange,
+  type CtWindow,
+  type LayerVisualSettings,
+} from '../layers'
+
 /** Tipo de las opciones de carga de volumen (NVImageFromUrlOptions es una factory, no un type). */
 type VolumeOptions = ReturnType<typeof NVImageFromUrlOptions>
+
+/** Opacidad por defecto de una capa según su clave (las desconocidas: 0.5). */
+function defaultOpacity(key: string): number {
+  return DEFAULT_OPACITY[key] ?? 0.5
+}
+
+/**
+ * Firmas de los ajustes aplicados sobre los volúmenes.
+ *
+ * Se separan en dos grupos porque su coste en NiiVue es muy distinto:
+ * - `base` (CT: visibilidad, opacidad y ventana) requiere reconstruir la
+ *   textura de la CT y las capas (`updateGLVolume`).
+ * - `masks` (visibilidad, opacidad y color de las máscaras) solo requiere
+ *   volver a hornear la textura de overlays, sin tocar la CT.
+ */
+interface AppliedVisualKeys {
+  base: string
+  masks: string
+}
+
+/** Calcula las firmas de `settings` + `ctWindow` para las capas del estudio. */
+function computeVisualKeys(
+  layers: LayerInfo[],
+  settings: Record<string, LayerVisualSettings>,
+  ctWindow: CtWindow,
+): AppliedVisualKeys {
+  const baseLayer = layers.find((layer) => layer.kind === 'base')
+  const baseSettings = baseLayer ? settings[baseLayer.key] : undefined
+  const baseVisible = baseSettings?.visible === false ? 0 : 1
+  const baseOpacity = (baseSettings?.opacity ?? defaultOpacity('ct')).toFixed(3)
+  const base = `${baseVisible}:${baseOpacity}:${ctWindow.level}/${ctWindow.width}`
+
+  const masks = layers
+    .filter((layer) => layer.kind === 'mask')
+    .map((layer) => {
+      const maskSettings = settings[layer.key]
+      const visible = maskSettings?.visible === false ? 0 : 1
+      const opacity = (maskSettings?.opacity ?? defaultOpacity(layer.key)).toFixed(3)
+      const color = maskSettings?.color ?? layer.color ?? ''
+      return `${layer.key}:${visible}:${opacity}:${color}`
+    })
+    .join('|')
+
+  return { base, masks }
+}
+
+/** Firmas que dejan horneadas `buildVolumeOptions` + `loadVolumes`. */
+function loadedVisualKeys(layers: LayerInfo[]): AppliedVisualKeys {
+  const settings: Record<string, LayerVisualSettings> = {}
+  for (const layer of layers) {
+    settings[layer.key] = {
+      visible: true,
+      opacity: defaultOpacity(layer.key),
+      color: layer.kind === 'mask' ? layer.color : null,
+    }
+  }
+  return computeVisualKeys(layers, settings, DEFAULT_CT_WINDOW)
+}
+
+/**
+ * Rehornea SOLO la textura de overlays (máscaras) con los valores actuales,
+ * sin re-subir la textura de la CT. Equivale a la parte de `updateGLVolume`
+ * que recorre las capas > 0; se usa en el camino caliente de los sliders de
+ * máscara, donde reconstruir la CT (cientos de MB) sería desproporcionado.
+ */
+function rebakeOverlays(nv: Niivue): void {
+  let layer = 0
+  for (const vol of nv.volumes) {
+    if (!vol.toRAS) continue
+    if (layer > 0) nv.refreshLayers(vol, layer)
+    layer++
+  }
+  nv.drawScene()
+}
 
 /** Modos de vista del visor (estilo ViewerToolbar). */
 export type ViewMode = 'Axial' | 'Coronal' | 'Sagital' | 'Multi' | '3D'
@@ -16,15 +99,11 @@ export type CrosshairLocation = {
 }
 
 /** Opacidad inicial por capa (PLAN §7). */
-const LAYER_OPACITY: Record<string, number> = {
-  lung_right: 0.25,
-  lung_left: 0.25,
-  lesion: 0.8,
-}
+const DEFAULT_CT_RANGE = windowToRange(DEFAULT_CT_WINDOW)
 
-/** Ventana pulmonar de la CT (PLAN §7: -1400 a 100 HU). */
-const CT_CAL_MIN = -1400
-const CT_CAL_MAX = 100
+/** Ventana pulmonar de la CT (PLAN §7: −650 / 1500 HU → −1400..100). */
+const CT_CAL_MIN = DEFAULT_CT_RANGE.calMin
+const CT_CAL_MAX = DEFAULT_CT_RANGE.calMax
 
 const VIEW_MODE_TO_SLICE_TYPE: Record<ViewMode, SLICE_TYPE> = {
   Axial: SLICE_TYPE.AXIAL,
@@ -124,9 +203,23 @@ export function useNiivue() {
   // obsoletas (estudio cambiado mientras se descargaba) se descartan sin tocar el
   // estado del estudio vigente.
   const loadStudyTokenRef = useRef(0)
+  // Cola de cargas: `loadVolumes` no es reentrante (muta volúmenes y
+  // texturas GL), así que las cargas se encadenan en serie.
+  const loadPromiseRef = useRef<Promise<void>>(Promise.resolve())
+
+  // Firmas de los últimos ajustes visuales aplicados. Evitan repetir trabajo
+  // justo después de cargar un estudio, cuando el efecto de sincronización
+  // vuelve a pedir los mismos valores.
+  const lastVisualKeysRef = useRef<AppliedVisualKeys | null>(null)
 
   // Promesa de la inicialización en curso (attachToCanvas + init).
   const initPromiseRef = useRef<Promise<void> | null>(null)
+  // Instancia inicializada y canvas al que está ligada. `ready` indica que
+  // hay volúmenes pintados; `initialized` solo que attachToCanvas + init
+  // terminaron. Son cosas distintas: un fallo de red deja ready=false pero
+  // la instancia sigue siendo válida para reintentar.
+  const initializedRef = useRef(false)
+  const attachedCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -141,6 +234,7 @@ export function useNiivue() {
       nv.removeVolumeByIndex(nv.volumes.length - 1)
     }
     readyRef.current = false
+    lastVisualKeysRef.current = null
     setReady(false)
     setLocation(null)
   }, [])
@@ -149,9 +243,12 @@ export function useNiivue() {
   const destroyInstance = useCallback(() => {
     clearVolumes()
     nvRef.current = null
-    canvasRef.current = null
+    attachedCanvasRef.current = null
+    initializedRef.current = false
+    initPromiseRef.current = null
     // No existe destroy()/dispose() en la API pública de NiiVue 0.47.0.
     // Soltar las referencias para que el GC pueda recuperar WebGL resources.
+    // No se toca canvasRef: el ref del canvas lo gestiona React.
   }, [clearVolumes])
 
   /** Expresión regular de color hex válido (#rrggbb). */
@@ -180,15 +277,7 @@ export function useNiivue() {
 
   /** Construye las opciones de carga para cada capa del estudio. */
   const buildVolumeOptions = useCallback(
-    (
-      layers: {
-        key: string
-        label: string
-        kind: string
-        color: string | null
-        url: string | null
-      }[],
-    ) => {
+    (layers: LayerInfo[]) => {
       const ctLayer = layers.find((l) => l.kind === 'base')
       const ctUrl = ctLayer?.url ?? null
 
@@ -201,7 +290,7 @@ export function useNiivue() {
           url: ctUrl,
           name: 'ct.nii.gz',
           colormap: 'gray',
-          opacity: 1,
+          opacity: DEFAULT_OPACITY.ct,
           cal_min: CT_CAL_MIN,
           cal_max: CT_CAL_MAX,
           trustCalMinMax: true,
@@ -215,7 +304,7 @@ export function useNiivue() {
         if (!layer.url) continue
         // Validar color antes de construir el colormap: falla explícito si es inválido.
         validarColorMask(layer.color, layer.key, layer.label)
-        const opacity = LAYER_OPACITY[layer.key] ?? 0.5
+        const opacity = defaultOpacity(layer.key)
         opts.push({
           url: layer.url,
           // name con extensión para que NiiVue.getFileExt() obtenga una extensión válida.
@@ -234,14 +323,86 @@ export function useNiivue() {
   )
 
   /**
+   * Aplica visibilidad, opacidad, color de máscara y ventana de la CT sobre
+   * los volúmenes YA cargados (regla 11: sin peticiones ni recargas).
+   *
+   * Localiza cada volumen por su `name` (`<key>.nii.gz`), nunca por su
+   * índice en el array. Si solo cambian las máscaras, rehornea la textura de
+   * overlays y no toca la CT; si cambia la CT (ventana u opacidad) hace un
+   * `updateGLVolume()` completo. Si los ajustes no han cambiado desde la
+   * última aplicación no hace nada.
+   */
+  const applyVisualSettings = useCallback(
+    (
+      layers: LayerInfo[],
+      settings: Record<string, LayerVisualSettings>,
+      ctWindow: CtWindow,
+    ) => {
+      const nv = nvRef.current
+      if (!nv || nv.volumes.length === 0) return
+
+      const desired = computeVisualKeys(layers, settings, ctWindow)
+      const previous = lastVisualKeysRef.current
+      const baseChanged = previous?.base !== desired.base
+      const masksChanged = previous?.masks !== desired.masks
+      if (!baseChanged && !masksChanged) return
+
+      const { calMin, calMax } = windowToRange(ctWindow)
+
+      try {
+        for (const layer of layers) {
+          const vol = nv.volumes.find((v) => v.name === `${layer.key}.nii.gz`)
+          if (!vol) continue
+
+          const s = settings[layer.key]
+          if (layer.kind === 'base') {
+            if (!baseChanged) continue
+            vol.opacity =
+              s?.visible === false ? 0 : (s?.opacity ?? defaultOpacity(layer.key))
+            // NiiVue lee cal_min/cal_max al reconstruir la textura de la CT.
+            vol.cal_min = calMin
+            vol.cal_max = calMax
+            continue
+          }
+
+          if (layer.kind !== 'mask' || !masksChanged) continue
+
+          // Ocultar = opacidad 0 sobre el volumen ya cargado (NiiVue no
+          // expone `visible` para NVImage en 0.47.0). Se aplica también al
+          // render 3D, que compone los overlays en una textura RGBA.
+          vol.opacity =
+            s?.visible === false ? 0 : (s?.opacity ?? defaultOpacity(layer.key))
+
+          const hex = s?.color ?? layer.color
+          if (hex) {
+            validarColorMask(hex, layer.key, layer.label)
+            const colormapKey = `ls_${layer.key}_${hex.slice(1)}`
+            nv.addColormap(colormapKey, makeSingleColorColormap(hex))
+            vol.setColormap(colormapKey)
+          }
+        }
+
+        if (baseChanged) {
+          nv.updateGLVolume()
+        } else {
+          rebakeOverlays(nv)
+        }
+        lastVisualKeysRef.current = desired
+      } catch (err) {
+        // Nunca propagar rutas ni cabeceras al cliente: solo el objeto real
+        // de error en consola.
+        console.error('[niivue] no se pudieron aplicar los ajustes de capas:', err)
+      }
+    },
+    [validarColorMask],
+  )
+
+  /**
    * Garantiza que exista una instancia NiiVue inicializada (attachToCanvas +
    * init resueltos) attachada al canvas actual. La crea si es necesario.
    * Devuelve la instancia lista para usar.
    */
   const ensureInitialized = useCallback(async (): Promise<Niivue> => {
-    const nv = nvRef.current
-    if (nv && readyRef.current) return nv
-
     const c = canvasRef.current
     if (!c) {
       const msg = 'Canvas no disponible para inicializar el visor.'
@@ -249,11 +410,26 @@ export function useNiivue() {
       throw new Error(msg)
     }
 
+    // La instancia solo se reutiliza si está inicializada y sigue ligada al
+    // canvas que hay en el DOM. Si el canvas se reemplazó (p. ej. al
+    // remontarse el visor), se sueltan las referencias de la anterior y se
+    // crea una nueva sobre el canvas actual.
+    if (nvRef.current && attachedCanvasRef.current !== c) {
+      nvRef.current = null
+      initializedRef.current = false
+      readyRef.current = false
+      initPromiseRef.current = null
+      lastVisualKeysRef.current = null
+    }
+
+    const nv = nvRef.current
+    if (nv && initializedRef.current) return nv
+
     // Si ya hay una inicialización en curso, esperar a que termine.
     if (initPromiseRef.current) {
       await initPromiseRef.current
       const nv2 = nvRef.current
-      if (!nv2 || !readyRef.current) {
+      if (!nv2 || !initializedRef.current) {
         throw new Error(errorMsgRef.current ?? 'Error inicializando el visor.')
       }
       return nv2
@@ -295,15 +471,22 @@ export function useNiivue() {
             })
           }
           readyRef.current = true
+          initializedRef.current = true
+          attachedCanvasRef.current = c
           setReady(true)
           setError(null)
           resolve()
         })
         .catch((err) => {
           readyRef.current = false
+          initializedRef.current = false
+          attachedCanvasRef.current = null
+          nvRef.current = null
+          initPromiseRef.current = null
           setReady(false)
           const msg = 'No se pudo inicializar el visor NiiVue.'
           console.error('[niivue] NiiVue init failed:', err)
+          errorMsgRef.current = msg
           setError(msg)
           reject(new Error(msg))
         })
@@ -312,7 +495,7 @@ export function useNiivue() {
 
     await initPromise
     const nv3 = nvRef.current
-    if (!nv3 || !readyRef.current) {
+    if (!nv3 || !initializedRef.current) {
       throw new Error(errorMsgRef.current ?? 'Error inicializando el visor.')
     }
     return nv3
@@ -324,90 +507,104 @@ export function useNiivue() {
 
   /**
    * Carga (o recarga) los volúmenes de un estudio.
-   * Descarta cargas obsoletas si el estudio cambió mientras se carga.
+   *
+   * Las cargas se serializan: `loadVolumes` muta `volumes` y las texturas GL,
+   * así que dos cargas concurrentes (cambio rápido de estudio) podían dejar
+   * volúmenes de dos estudios mezclados. Además, una carga obsoleta que aún
+   * no había empezado se descarta sin descargar nada.
    */
   const loadStudy = useCallback(
     async (
       studyId: string,
-      layers: {
-        key: string
-        label: string
-        kind: string
-        color: string | null
-        url: string | null
-      }[],
+      layers: LayerInfo[],
+      visuals?: {
+        settings: Record<string, LayerVisualSettings>
+        ctWindow: CtWindow
+      },
     ) => {
       const myToken = ++loadStudyTokenRef.current
       latestStudyRef.current = studyId
 
-      let nv: Niivue
-      try {
-        nv = await ensureInitialized()
-      } catch (err) {
-        // ensureInitialized ya seteó el error descriptivo en el estado.
-        console.error('[niivue] loadStudy: inicialización falló:', err)
-        return
-      }
-      if (loadStudyTokenRef.current !== myToken) return
+      const run = (async () => {
+        // Esperar a la carga anterior (si la hay) antes de tocar NiiVue.
+        await loadPromiseRef.current.catch(() => {})
+        if (loadStudyTokenRef.current !== myToken) return
 
-      // Liberar los volúmenes del estudio anterior antes de cargar los nuevos.
-      clearVolumes()
-
-      setError(null)
-      try {
-        // buildVolumeOptions valida los colores de las máscaras; si falla,
-        // se captura aquí con un mensaje explícito de capa y campo.
-        const { ctUrl, opts } = buildVolumeOptions(layers)
-
-        if (!ctUrl) {
-          setError(null)
-          setReady(false)
+        let nv: Niivue
+        try {
+          nv = await ensureInitialized()
+        } catch (err) {
+          // ensureInitialized ya seteó el error descriptivo en el estado.
+          console.error('[niivue] loadStudy: inicialización falló:', err)
           return
         }
-
-        // Registrar los colormaps ANTES de loadVolumes: NiiVue resuelve el
-        // nombre del colormap al construir cada volumen y avisa si no existe.
-        // El color ya está validado por buildVolumeOptions (no es null aquí).
-        for (const layer of layers) {
-          if (layer.kind !== 'mask') continue
-          if (!layer.url) continue
-          nv.addColormap(`ls_${layer.key}`, makeSingleColorColormap(layer.color!))
-        }
-
-        await nv.loadVolumes(opts)
-
-        // Si llegó un estudio más reciente mientras cargábamos, descartar sin tocar el vigente.
         if (loadStudyTokenRef.current !== myToken) return
 
-        // Reaplicar por id: el name de cada volumen es `${layer.key}.nii.gz`
-        // (ver buildVolumeOptions). La opacidad la controla el volumen.
-        for (const layer of layers) {
-          if (layer.kind !== 'mask') continue
-          if (!layer.url) continue
-          const vol = nv.volumes.find((v) => v.name === `${layer.key}.nii.gz`)
-          if (vol) {
-            nv.setColormap(vol.id, `ls_${layer.key}`)
+        // Liberar los volúmenes del estudio anterior antes de cargar los nuevos.
+        clearVolumes()
+
+        setError(null)
+        try {
+          // buildVolumeOptions valida los colores de las máscaras; si falla,
+          // se captura aquí con un mensaje explícito de capa y campo.
+          const { ctUrl, opts } = buildVolumeOptions(layers)
+
+          if (!ctUrl) {
+            setError(null)
+            setReady(false)
+            return
           }
-        }
 
-        readyRef.current = true
-        setReady(true)
-      } catch (err) {
-        if (loadStudyTokenRef.current !== myToken) return
-        const isNetwork =
-          err instanceof Error && /failed to fetch|404|network/i.test(err.message)
-        const msg = isNetwork
-          ? 'No se pudo descargar el archivo NIfTI.'
-          : err instanceof Error
-            ? err.message
-            : 'Error cargando el estudio.'
-        console.error('[niivue] loadVolumes failed:', err)
-        errorMsgRef.current = msg
-        setError(msg)
-        setReady(false)
-      }
+          // Registrar los colormaps ANTES de loadVolumes: NiiVue resuelve el
+          // nombre del colormap al construir cada volumen y avisa si no existe.
+          // El color ya está validado por buildVolumeOptions (no es null aquí).
+          for (const layer of layers) {
+            if (layer.kind !== 'mask') continue
+            if (!layer.url) continue
+            nv.addColormap(`ls_${layer.key}`, makeSingleColorColormap(layer.color!))
+          }
+
+          await nv.loadVolumes(opts)
+
+          // Si llegó un estudio más reciente, descartar sin tocar el estado.
+          // Al estar serializado, la siguiente carga vaciará estos volúmenes
+          // antes de añadir los suyos.
+          if (loadStudyTokenRef.current !== myToken) return
+
+          // `loadVolumes` ya deja aplicados el color y la opacidad indicados en
+          // las opciones; esta firma representa ese estado recién horneado.
+          lastVisualKeysRef.current = loadedVisualKeys(layers)
+
+          // Aplicar los ajustes vigentes antes de retirar la superposición de
+          // carga: al cambiar de estudio se conservan visibilidad, opacidad,
+          // color y ventana sin que se vea un fotograma con los valores por
+          // defecto. Si coinciden con los de carga no se rehace nada.
+          if (visuals) {
+            applyVisualSettings(layers, visuals.settings, visuals.ctWindow)
+          }
+
+          readyRef.current = true
+          setReady(true)
+        } catch (err) {
+          if (loadStudyTokenRef.current !== myToken) return
+          const isNetwork =
+            err instanceof Error && /failed to fetch|404|network/i.test(err.message)
+          const msg = isNetwork
+            ? 'No se pudo descargar el archivo NIfTI.'
+            : err instanceof Error
+              ? err.message
+              : 'Error cargando el estudio.'
+          console.error('[niivue] loadVolumes failed:', err)
+          errorMsgRef.current = msg
+          setError(msg)
+          setReady(false)
+        }
+      })()
+
+      loadPromiseRef.current = run.catch(() => {})
+      await run
     },
-    [buildVolumeOptions, clearVolumes, ensureInitialized],
+    [applyVisualSettings, buildVolumeOptions, clearVolumes, ensureInitialized],
   )
 
   /** Cambia el modo de vista sin recargar volúmenes. */
@@ -418,18 +615,15 @@ export function useNiivue() {
   }, [])
 
   useEffect(() => {
-    const c = canvasRef.current
-    if (!c) return
-
-    // Inicializar la instancia una sola vez por canvas. El efecto depende
-    // de `canvasRef` (objeto estable) y de `destroyInstance`, así que corre
-    // una vez por montaje; StrictMode no la recrea prematuramente.
-    void ensureInitialized()
-
+    // La instancia se inicializa de forma perezosa al cargar el primer
+    // estudio (loadStudy → ensureInitialized). Este efecto solo libera los
+    // volúmenes y las referencias al desmontar. No se inicializa aquí para
+    // no chocar con el doble montaje de StrictMode ni con el remontaje del
+    // canvas.
     return () => {
       destroyInstance()
     }
-  }, [ensureInitialized, destroyInstance])
+  }, [destroyInstance])
 
   return {
     canvasRef,
@@ -439,6 +633,7 @@ export function useNiivue() {
     webgl2: webgl2Ref.current,
     location,
     loadStudy,
+    applyVisualSettings,
     setViewMode,
     clearVolumes,
     destroyInstance,
