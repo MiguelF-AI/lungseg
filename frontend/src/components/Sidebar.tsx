@@ -1,15 +1,31 @@
 import LayerPanel from './LayerPanel'
 import MetricsCard from './MetricsCard'
 import StudyPicker from './StudyPicker'
+import type { StudyDetail } from '../api/types'
+import type { CtWindow, LayerVisualSettings } from '../layers'
 
 export function Sidebar({
   className = '',
-  selectedStudyId,
   onStudySelect,
+  study,
+  studyLoading,
+  studyError,
+  onRetryStudy,
+  layerSettings,
+  onLayerChange,
+  ctWindow,
+  onCtWindowChange,
 }: {
   className?: string
-  selectedStudyId: string | null
   onStudySelect: (id: string) => void
+  study: StudyDetail | null
+  studyLoading: boolean
+  studyError: string | null
+  onRetryStudy: () => void
+  layerSettings: Record<string, LayerVisualSettings>
+  onLayerChange: (key: string, patch: Partial<LayerVisualSettings>) => void
+  ctWindow: CtWindow
+  onCtWindowChange: (window: CtWindow) => void
 }) {
   return (
     <aside
@@ -69,8 +85,17 @@ export function Sidebar({
       {/* Estudio */}
       <StudyPicker onSelect={onStudySelect} />
 
-      {/* Capas (se reinicia el estado al cambiar de estudio). */}
-      <LayerPanel key={selectedStudyId} studyId={selectedStudyId} />
+      {/* Capas: los ajustes viven en App y se conservan al cambiar de estudio. */}
+      <LayerPanel
+        study={study}
+        loading={studyLoading}
+        error={studyError}
+        onRetry={onRetryStudy}
+        layerSettings={layerSettings}
+        onLayerChange={onLayerChange}
+        ctWindow={ctWindow}
+        onCtWindowChange={onCtWindowChange}
+      />
 
       {/* Métricas */}
       <MetricsCard metrics={null} />
