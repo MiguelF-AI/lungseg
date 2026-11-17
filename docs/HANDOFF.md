@@ -15,6 +15,7 @@ Datos: copiar a `Data/` los archivos que genera el notebook de Colab (`{id}_lung
 ## 2. Estado actual
 
 - **B3 cerrado** en `feat/B3-metrics` (rama actual) y marcado ✅ en `PROGRESS.md` (CP-008). No hay trabajo en curso. **F4 sigue cerrado** (CP-007) y cumple las reglas nuevas 14–16 sin cambios de código: el canvas está siempre montado, un solo canvas/instancia y ningún `key` ligado al estudio.
+- **V0 cerrado** (CP-009) por verificación visual del usuario con dos estudios reales de `Data/`: alineación CT-máscaras y lateralidad correctas y 3D coherente. Detalle en §4. No hubo cambios de código.
 - **`AGENTS.md` ampliado**: reglas 14 (efectos de React), 15 (commit `wip(<ID>)` y nada de git destructivo sin preguntar) y 16 (una sola instancia/canvas de NiiVue) añadidas literalmente por indicación del humano.
 - Backend: FastAPI con `/api/health`, `/api/studies`, `/api/studies/{id}`, `GET/HEAD /api/studies/{id}/files/{layer}.nii.gz` (ETag, Last-Modified, Cache-Control: no-cache, 304) y **`GET /api/studies/{id}/metrics`** (nuevo). Derivadas de B2 en `storage/derived/{id}/` con invalidación por mtime, escritura atómica y candado por estudio.
   - `backend/lungseg_api/metrics.py` (nuevo): calcula `Metrics` sobre `lung_right`, `lung_left` y `lesion` (uint8, una máscara cada vez, `del`). Volumen en litros = `n_voxeles * (sx*sy*sz mm³) / 1e6` con **spacing del header**. `lung_total_l` = derecho + izquierdo crudos. `lesion_pct_of_lung` con la fórmula del notebook. `lesion_by_lung_pct` asigna cada vóxel de lesión al pulmón cuya máscara **rellenada por corte axial** (`binary_fill_holes` 2D; eje axial desde `aff2axcodes`) lo contiene, dividido entre los vóxeles **crudos** de ese pulmón; los vóxeles que no caen en ningún pulmón relleno no entran en ningún numerador. `lesion_components` con `scipy.ndimage.label` y **conectividad 6**. Centroide con `center_of_mass` → `apply_affine` (mm de mundo), `null` sin lesión. Litros redondeados a 6 decimales, porcentajes y mm a 2.
@@ -23,13 +24,19 @@ Datos: copiar a `Data/` los archivos que genera el notebook de Colab (`{id}_lung
 - Frontend: sin cambios funcionales; solo `frontend/src/api/types.ts` espejo de los dos campos nuevos de `StudyDetail`. `MetricsCard` sigue con datos de ejemplo y `useMetrics` sin conectar (F6).
 - Checks del cierre (2026-11-16): `ruff check`, `ruff format --check`, `pyright` (0 errores), `pytest` (**30 tests**) y `npm run build` (0 errores de tipo; sigue el aviso de chunk >500 kB de NiiVue, §4).
 - Verificación con datos reales (`curl.exe`, API en `:8000`, uvicorn detenido al terminar): estudio `33cf78a82e5d1f3a98931b3fe5d31a40` → pulmón **4.351949 L**, lesión **0.680646 L**, **15.64 %**, 83 componentes, centroide `[42.28, 84.05, -46.49]` mm; notebook del humano → **4.35 L**, **0.681 L**, **15.6 %** (diferencias ≤ 0.05 % / 0.04 pp). Estudio `6b79babd91e6376cf8df9bfd061d117f` → 2.177926 L / 0.946993 L / 43.48 % (189 componentes); **no hay cifras del notebook para este estudio**, así que no se pudo comparar. Sanidad interna: la media ponderada de `lesion_by_lung_pct` reproduce `lesion_pct_of_lung` en ambos casos. id inválido, `../` y estudio inexistente → 404.
-- **Siguiente paso: F6** (conectar `MetricsCard`/`useMetrics` y «Centrar en lesión» con el centroide). Sigue pendiente **V0** (alineación CT-máscaras y pasada con GPU real, incluida la latencia real de sliders/ventana). Después: F5, F7 (antes, ticket de actualización de NiiVue, §4) y F8.
+- **Siguiente paso: F6** (conectar `MetricsCard`/`useMetrics` y «Centrar en lesión» con el centroide). **V0 ya está cerrado** (CP-009, verificación del usuario con GPU real). Después: F5, F7 (antes, ticket de actualización de NiiVue, §4) y F8.
 
 ## 3. Trabajo en curso / a medias
 
 _(nada)_
 
 ## 4. Notas, desviaciones y deuda anotada
+
+- **V0 (verificación de alineación con casos reales) — cerrado por verificación del usuario:**
+  - **Alcance verificado:** el usuario abrió la UI (API + Vite) con **dos estudios reales** de `Data/`: `33cf78a8…` y `6b79babd…` (ids abreviados). Es una pasada **manual del usuario con GPU real** (RX 6600), no la verificación headless/SwiftShader de F3/F4.
+  - **Resultado:** **alineación CT-máscaras correcta** en los tres planos (axial/coronal/sagital) y en Multi: los contornos de pulmón y de tejido dañado caen sobre el parénquima de la CT. **Lateralidad correcta**: el pulmón azul (`lung_right`, `#4169e1`) corresponde al pulmón **derecho** del paciente (convención neurológica de la UI, es decir, a la izquierda de la pantalla en axial). **3D coherente**: el render volumétrico y las máscaras se ven alineados y sin desplazamientos ni volteos.
+  - **Qué queda de V0 en el plan:** nada bloqueante. La parte de alineación/lateralidad/3D que pedía §8 queda cumplida con estos dos casos (el plan decía «3 casos reales»; solo hay dos estudios en `Data/`, y el usuario los verificó ambos). La **latencia real de sliders/ventana con GPU real** no se midió numéricamente en esta pasada: sigue como medición pendiente/anotada (los tiempos de SwiftShader de F4 no son representativos), no como bloqueo.
+  - **Sin cambios de código:** V0 es solo verificación y registro (PROGRESS CP-009).
 
 - **B3 (métricas) — decisiones y notas:**
   - **Dependencia nueva:** `scipy` 1.18.1 (`uv add scipy`), necesaria para `scipy.ndimage.label`, `binary_fill_holes` y `center_of_mass` (§8 del plan lo exige). Añadida a `pyproject.toml` y `uv.lock`.

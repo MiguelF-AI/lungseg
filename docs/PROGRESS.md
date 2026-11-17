@@ -16,7 +16,7 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 | 1 | F2 | Cliente API tipado | F1, B1 | ✅ |
 | 1 | F3 | Componente `NiiViewer` | F2, B2 | ✅ |
 | 1 | F4 | Panel de capas | F3 | ✅ |
-| 1 | V0 | Verificación de alineación con casos reales | F4, B2 | ⬜ |
+| 1 | V0 | Verificación de alineación con casos reales | F4, B2 | ✅ |
 | 1 | F6 | Métricas y «Centrar en lesión» | F3, B3 | ⬜ |
 | 1 | F5 | Selector de estudios y atajos | F3 | ⬜ |
 | 1 | F7 | Pulido 3D | F3, F4 | ⬜ |
@@ -38,6 +38,12 @@ Formato de cada entrada (la más reciente arriba):
 - Desviaciones del plan y por qué:
 - Pendiente / siguiente paso:
 ```
+
+### CP-009 · 2026-11-16 · V0
+- Qué cambió: **nada de código.** Solo verificación y registro. `docs/PROGRESS.md` (V0 → ✅ en el tablero, esta entrada). `docs/HANDOFF.md` §4 (resultado de V0) y §2 (estado y siguiente paso).
+- Cómo se verificó: verificación **manual del usuario** con GPU real (RX 6600), API en `:8000` + Vite, sobre **dos estudios reales** de `Data/` (`33cf78a8…` y `6b79babd…`, ids abreviados). Resultado: **alineación CT-máscaras correcta** en axial/coronal/sagital y Multi, **lateralidad correcta** (el pulmón azul, `lung_right`, es el pulmón derecho del paciente y sale a la izquierda de la pantalla en axial, coherente con la convención neurológica de la UI) y **3D coherente** (render y máscaras alineados, sin desplazamientos ni volteos).
+- Desviaciones del plan y por qué: §8 de PLAN pedía «3 casos reales»; en `Data/` solo hay dos estudios y el usuario verificó ambos, así que la parte de alineación/lateralidad/3D se da por cumplida con esos dos casos. La **latencia real de sliders/ventana con GPU real** no se midió numéricamente en esta pasada; queda como medición pendiente anotada en HANDOFF §4 (los tiempos de SwiftShader de F4 no son representativos), sin bloquear el ticket.
+- Pendiente / siguiente paso: **F6** (conectar `MetricsCard`/`useMetrics` a `/metrics` y «Centrar en lesión» con el centroide). Después: F5, F7 (antes, decidir el ticket de actualización de NiiVue, HANDOFF §4) y F8.
 
 ### CP-008 · 2026-11-16 · B3
 - Qué cambió: `backend/lungseg_api/metrics.py` (nuevo: cálculo de `Metrics` sobre las derivadas de B2 — `lung_right`, `lung_left`, `lesion` — cargadas una a una como uint8 con `del`; volumetría `n_voxeles * (sx*sy*sz en mm³) / 1e6` con spacing del header; `lesion_pct_of_lung` con la fórmula del notebook; `lesion_by_lung_pct` repartiendo la lesión con la máscara pulmonar rellenada por corte axial (`binary_fill_holes` 2D, eje axial deducido de `aff2axcodes`) y denominador de vóxeles crudos; `lesion_components` con `scipy.ndimage.label` y conectividad 6; centroide con `center_of_mass` + `apply_affine`; caché `storage/derived/{id}/metrics.json` con mtimes de las fuentes, escritura atómica y el candado por estudio de B2 tomado después de asegurar las derivadas). `backend/lungseg_api/routers/metrics.py` (nuevo: `GET /api/studies/{id}/metrics`, valida id con regex antes de construir rutas, 404 sin rutas absolutas). `schemas.py` (`LesionByLung`, `Metrics`, `StudyDetail.lesion_pct`/`lesion_l`). `main.py` (incluye el router; `/api/studies` y `/api/studies/{id}` rellenan `lesion_pct`/`lesion_l` **solo** desde caché válida, sin calcular). `frontend/src/api/types.ts` (espejo de los dos campos nuevos, regla 01). `docs/PLAN.md` §6 (StudyDetail + nota del reparto por pulmón). `pyproject.toml`/`uv.lock` (`uv add scipy` → 1.18.1). `backend/tests/test_metrics.py` (nuevo: 10 tests sintéticos). `AGENTS.md` (reglas 14–16 añadidas por indicación del humano).
