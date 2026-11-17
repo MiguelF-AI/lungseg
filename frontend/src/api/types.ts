@@ -42,5 +42,8 @@ export interface Metrics {
   lesion_pct_of_lung: number
   lesion_by_lung_pct: { right: number; left: number }
   lesion_components: number
+  /** Centroide global de la lesión; puede caer fuera de cualquier foco. */
   lesion_centroid_mm: number[] | null
+  /** Punto garantizado dentro de la lesión (componente conexo más grande). */
+  lesion_focus_mm: number[] | null
 }

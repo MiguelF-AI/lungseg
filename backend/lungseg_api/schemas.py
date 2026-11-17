@@ -49,3 +49,4 @@ class Metrics(BaseModel):
     lesion_by_lung_pct: LesionByLung
     lesion_components: int
     lesion_centroid_mm: Optional[List[float]] = None
+    lesion_focus_mm: Optional[List[float]] = None

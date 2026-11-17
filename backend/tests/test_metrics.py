@@ -8,6 +8,7 @@ en mm no coincida con el centroide en vóxeles.
 Fórmula comprobada: ``n_voxeles * (sx*sy*sz en mm³) / 1e6`` litros.
 """
 
+import json
 import os
 import time
 
@@ -147,6 +148,121 @@ def test_centroid_in_world_mm(tmp_path, monkeypatch):
     assert body["lesion_centroid_mm"][2] == pytest.approx(36.25, abs=0.01)
 
 
+def test_focus_is_inside_largest_component_with_bilateral_lesions(
+    tmp_path, monkeypatch
+):
+    """Dos focos separados: el centroide global cae fuera y el foco dentro.
+
+    Los dos focos comparten y/z y están separados en x, así que el centroide
+    ponderado de la unión cae en x≈12.6, un vóxel **sin lesión**. El foco debe
+    caer en el componente mayor (el de x 15..19).
+    """
+    _set_env(tmp_path)
+    lung = _split_lung()
+    lesion = np.zeros(SHAPE, dtype=np.uint8)
+    lesion[1:3, 5:8, 2:5] = 1  # foco pequeño: 2*3*3 = 18 vóxeles
+    lesion[15:20, 5:8, 2:5] = 1  # foco grande: 5*3*3 = 45 vóxeles
+    _make_study(tmp_path, "focos_bilaterales", lung, lesion)
+
+    body = client.get("/api/studies/focos_bilaterales/metrics").json()
+    assert body["lesion_components"] == 2
+    assert body["lesion_centroid_mm"] is not None
+    assert body["lesion_focus_mm"] is not None
+
+    inverse = np.linalg.inv(AFFINE)
+    centroid_vox = np.round(
+        apply_affine(inverse, np.array(body["lesion_centroid_mm"]))
+    ).astype(int)
+    # El centroide global cae fuera de la lesión (es el caso que motiva F6).
+    assert lesion[tuple(centroid_vox)] == 0
+
+    focus_vox = np.round(
+        apply_affine(inverse, np.array(body["lesion_focus_mm"]))
+    ).astype(int)
+    # El foco es un vóxel de lesión y pertenece al componente más grande.
+    assert lesion[tuple(focus_vox)] == 1
+    assert focus_vox[0] >= 15
+    # El mm devuelto es el centro de ese vóxel con el affine (no el de vóxeles).
+    expected_mm = apply_affine(AFFINE, np.array(focus_vox, dtype=float))
+    assert body["lesion_focus_mm"] == pytest.approx(
+        [float(value) for value in expected_mm], abs=0.01
+    )
+    assert body["lesion_focus_mm"] != pytest.approx(body["lesion_centroid_mm"])
+
+
+def test_focus_single_component_is_its_centroid(tmp_path, monkeypatch):
+    _set_env(tmp_path)
+    lung = _split_lung()
+    lesion = np.zeros(SHAPE, dtype=np.uint8)
+    lesion[4:6, 3:8, 2:4] = 1  # mismo bloque que test_centroid_in_world_mm
+    _make_study(tmp_path, "foco_unico", lung, lesion)
+
+    body = client.get("/api/studies/foco_unico/metrics").json()
+
+    assert body["lesion_components"] == 1
+    # Con un único componente convexo, el vóxel más cercano al centroide es el
+    # que lo contiene: el foco coincide con el centroide redondeado a vóxel.
+    inverse = np.linalg.inv(AFFINE)
+    centroid_vox = np.round(
+        apply_affine(inverse, np.array(body["lesion_centroid_mm"]))
+    ).astype(int)
+    focus_vox = np.round(
+        apply_affine(inverse, np.array(body["lesion_focus_mm"]))
+    ).astype(int)
+    assert tuple(focus_vox) == tuple(centroid_vox)
+
+
+def test_cache_version_invalidates_b3_format(tmp_path, monkeypatch):
+    """Una caché de B3 (sin `schema_version` ni `lesion_focus_mm`) se recalcula."""
+    _set_env(tmp_path)
+    lung = _split_lung()
+    lesion = np.zeros(SHAPE, dtype=np.uint8)
+    lesion[5:10, 5:10, 2:8] = 1
+    _make_study(tmp_path, "cache_v1", lung, lesion)
+
+    cache_file = tmp_path / "storage" / "derived" / "cache_v1" / "metrics.json"
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_text(
+        json.dumps(
+            {
+                # Formato de B3: sin "schema_version" y sin "lesion_focus_mm".
+                "sources": {
+                    "lung": os.path.getmtime(tmp_path / "cache_v1_lung.nii"),
+                    "lesion": os.path.getmtime(tmp_path / "cache_v1_cople_lesion.nii"),
+                },
+                "metrics": {
+                    "lung_right_l": 0.5,
+                    "lung_left_l": 0.5,
+                    "lung_total_l": 1.0,
+                    "lesion_l": 0.1,
+                    "lesion_pct_of_lung": 10.0,
+                    "lesion_by_lung_pct": {"right": 20.0, "left": 0.0},
+                    "lesion_components": 1,
+                    "lesion_centroid_mm": [0.0, 0.0, 0.0],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    calls = _count_calls(monkeypatch)
+    body = client.get("/api/studies/cache_v1/metrics").json()
+    assert calls["count"] == 1, "una caché sin versión debe recalcularse"
+    # Los valores de la caché falsa no se sirven: el volumen real es otro.
+    assert body["lung_right_l"] != pytest.approx(0.5)
+    assert body["lesion_focus_mm"] is not None
+
+    stored = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert stored["schema_version"] == metrics_module._METRICS_CACHE_VERSION
+    assert stored["metrics"]["lesion_focus_mm"] == body["lesion_focus_mm"]
+
+    # Y la siguiente llamada sí usa la caché nueva.
+    calls = _count_calls(monkeypatch)
+    again = client.get("/api/studies/cache_v1/metrics").json()
+    assert again == body
+    assert calls["count"] == 0
+
+
 def test_lesion_inside_filled_lung_hole(tmp_path, monkeypatch):
     _set_env(tmp_path)
     # Pulmón derecho en anillo por corte axial: 480 vóxeles crudos y un hueco
@@ -214,6 +330,7 @@ def test_without_lesion_and_empty_lesion_are_zero(tmp_path, monkeypatch):
         assert body["lesion_by_lung_pct"] == {"right": 0.0, "left": 0.0}
         assert body["lesion_components"] == 0
         assert body["lesion_centroid_mm"] is None
+        assert body["lesion_focus_mm"] is None
         assert body["lung_total_l"] > 0
 
 

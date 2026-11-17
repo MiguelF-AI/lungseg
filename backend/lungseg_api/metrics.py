@@ -29,7 +29,13 @@ Decisiones de cálculo (documentadas también en PLAN §6):
   conservador y reproducible.
 * ``lesion_centroid_mm`` es el centroide en vóxeles de la lesión llevado a mm
   de mundo con :func:`nibabel.affines.apply_affine`; es ``null`` si no hay
-  lesión.
+  lesión. Ojo: con lesiones multifocales o bilaterales ese centroide puede
+  caer **fuera** de cualquier foco (p. ej. en el mediastino).
+* ``lesion_focus_mm`` (ticket F6) es un punto **garantizado dentro de la
+  lesión**: el centro del vóxel del componente conexo **más grande** (misma
+  conectividad 6) más cercano, en mm de mundo, al centroide de ese componente.
+  Se calcula reutilizando el etiquetado de ``lesion_components``. Es ``null``
+  si no hay lesión ni focos.
 
 Memoria (regla 10): las máscaras se cargan con ``np.asarray(img.dataobj)``
 como ``uint8``, una cada vez, y se liberan con ``del``. El relleno de huecos se
@@ -37,10 +43,10 @@ hace por rebanadas sobre el array ya cargado (no con accesos sueltos al proxy
 de un ``.nii.gz``, que descomprime desde el principio en cada acceso).
 
 Caché: ``storage/derived/{id}/metrics.json`` con los ``mtime`` de las fuentes
-(pulmón y lesión) en ``sources``; se recalcula solo si cambian. La escritura es
-atómica y el cálculo se serializa con el mismo candado por estudio de B2
-(``derive._lock_for``), que **no** es reentrante: se toma después de asegurar
-las derivadas.
+(pulmón y lesión) en ``sources`` y un ``schema_version``; se recalcula solo si
+cambia algo. La escritura es atómica y el cálculo se serializa con el mismo
+candado por estudio de B2 (``derive._lock_for``), que **no** es reentrante: se
+toma después de asegurar las derivadas.
 """
 
 from __future__ import annotations
@@ -62,6 +68,11 @@ from lungseg_api.schemas import LesionByLung, Metrics
 
 # Conectividad 6 (ortogonal) para contar componentes de lesión.
 _COMPONENT_STRUCTURE = ndimage.generate_binary_structure(3, 1)
+
+# Versión del formato de `metrics.json`. Se sube cuando cambia el esquema de
+# `Metrics`: las cachés con otra versión se descartan y se recalculan (v2 =
+# B3 + `lesion_focus_mm` de F6; las cachés de B3 no tenían ese campo).
+_METRICS_CACHE_VERSION = 2
 
 
 def metrics_path(study_id: str) -> str:
@@ -115,8 +126,12 @@ def read_cached_metrics(
     if data_dir is None:
         data_dir = get_data_dir()
     stored = _read_json(metrics_path(study_id))
-    if stored is None or not _sources_match(
-        stored.get("sources"), _current_sources(data_dir, study_id)
+    if (
+        stored is None
+        or stored.get("schema_version") != _METRICS_CACHE_VERSION
+        or not _sources_match(
+            stored.get("sources"), _current_sources(data_dir, study_id)
+        )
     ):
         return None
     try:
@@ -130,7 +145,11 @@ def _write_metrics_cache(
     path: str, sources: Dict[str, Optional[float]], metrics: Metrics
 ):
     """Escribe el JSON de métricas de forma atómica."""
-    payload = {"sources": sources, "metrics": metrics.model_dump()}
+    payload = {
+        "schema_version": _METRICS_CACHE_VERSION,
+        "sources": sources,
+        "metrics": metrics.model_dump(),
+    }
     directory = os.path.dirname(path)
     fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=".metrics", suffix=".tmp")
     try:
@@ -183,13 +202,58 @@ def _count_mask(path: str) -> int:
         del data, img
 
 
+def _largest_component_voxel(
+    labeling: np.ndarray,
+    largest: int,
+    center: Tuple[float, float, float],
+    affine: np.ndarray,
+) -> Optional[Tuple[int, int, int]]:
+    """Vóxel del componente ``largest`` más cercano en mm a ``center``.
+
+    ``center`` son coordenadas de vóxel (float). El componente se recorre
+    rebanada a rebanada para no materializar un array de ~1 M × 3 coordenadas
+    ni una copia booleana del volumen completo (regla 10: 16 GB de RAM).
+    """
+    center_mm = apply_affine(affine, np.asarray(center, dtype=float))
+    best: Optional[Tuple[int, int, int]] = None
+    best_d2 = float("inf")
+    for index in range(labeling.shape[2]):
+        slice_labels = labeling[:, :, index]
+        axis0, axis1 = np.nonzero(slice_labels == largest)
+        if axis0.size == 0:
+            continue
+        # Orden de índice del array: (eje0, eje1, eje2), el mismo que espera
+        # `apply_affine` y el que devuelve `_lesion_stats` como vóxel.
+        coords = np.column_stack(
+            (axis0, axis1, np.full(axis0.shape, index, dtype=np.int64))
+        )
+        mm = apply_affine(affine, coords.astype(float))
+        distances = ((mm - center_mm) ** 2).sum(axis=1)
+        nearest = int(np.argmin(distances))
+        if float(distances[nearest]) < best_d2:
+            best_d2 = float(distances[nearest])
+            best = (
+                int(coords[nearest, 0]),
+                int(coords[nearest, 1]),
+                int(coords[nearest, 2]),
+            )
+    return best
+
+
 def _lesion_stats(
-    path: str,
-) -> Tuple[int, int, Optional[Tuple[float, float, float]]]:
-    """Devuelve (n_vóxeles, n_componentes, centroide en vóxeles o ``None``).
+    path: str, affine: np.ndarray
+) -> Tuple[
+    int,
+    int,
+    Optional[Tuple[float, float, float]],
+    Optional[Tuple[int, int, int]],
+]:
+    """Devuelve (n_vóxeles, n_componentes, centroide y foco, ambos en vóxeles).
 
     Los componentes se cuentan con conectividad 6 (:data:`_COMPONENT_STRUCTURE`)
-    y el centroide con :func:`scipy.ndimage.center_of_mass` (índices float).
+    y el centroide con :func:`scipy.ndimage.center_of_mass` (índices float). El
+    foco es el vóxel del componente más grande más cercano (en mm de mundo) al
+    centroide de ese componente, así que siempre está dentro de la lesión.
     """
     img = nib.load(path)
     data = None
@@ -198,16 +262,34 @@ def _lesion_stats(
         mask = data > 0
         count = int(np.count_nonzero(mask))
         if count == 0:
-            return 0, 0, None
+            return 0, 0, None, None
         labeling = ndimage.label(mask, structure=_COMPONENT_STRUCTURE)
         # Los tipos de scipy 1.18 + numpy 2.5 son imprecisos para pyright.
-        components = int(labeling[1])  # type: ignore
-        del labeling  # int32 del tamaño del volumen: se libera cuanto antes
-        center = ndimage.center_of_mass(mask)  # type: ignore[assignment]
+        labeled = labeling[0]  # type: ignore[index]
+        components = int(labeling[1])  # type: ignore[index]
+        center = np.asarray(ndimage.center_of_mass(mask), dtype=float).ravel()
+        component_sizes = np.bincount(np.asarray(labeled, dtype=np.int64).ravel())[1:]
+        largest = int(np.argmax(component_sizes)) + 1
+        # Centroide del componente más grande (sin copia booleana del volumen).
+        largest_center = np.asarray(
+            ndimage.center_of_mass(labeled, labeled, largest), dtype=float
+        ).ravel()
+        focus = _largest_component_voxel(
+            np.asarray(labeled),
+            largest,
+            (
+                float(largest_center[0]),
+                float(largest_center[1]),
+                float(largest_center[2]),
+            ),
+            affine,
+        )
+        del labeled, labeling  # int32 del tamaño del volumen: se libera cuanto antes
         return (
             count,
             components,
-            (float(center[0]), float(center[1]), float(center[2])),  # type: ignore
+            (float(center[0]), float(center[1]), float(center[2])),
+            focus,
         )
     finally:
         del data, img
@@ -328,8 +410,11 @@ def _compute_from_paths(
     lesion_voxels = 0
     components = 0
     centroid_voxels: Optional[Tuple[float, float, float]] = None
+    focus_voxels: Optional[Tuple[int, int, int]] = None
     if lesion_path is not None:
-        lesion_voxels, components, centroid_voxels = _lesion_stats(lesion_path)
+        lesion_voxels, components, centroid_voxels, focus_voxels = _lesion_stats(
+            lesion_path, affine
+        )
 
     right_lesion, left_lesion = _lesion_in_lung_counts(
         lung_right_path, lung_left_path, lesion_path
@@ -339,6 +424,13 @@ def _compute_from_paths(
     if centroid_voxels is not None:
         world = apply_affine(affine, np.asarray(centroid_voxels))
         centroid_mm = [round(float(value), 2) for value in world]
+
+    focus_mm: Optional[list[float]] = None
+    if focus_voxels is not None:
+        # Centro del vóxel del foco: mm2frac + frac2vox en la UI devuelven este
+        # mismo vóxel (el redondeo de NiiVue recupera el índice exacto).
+        world_focus = apply_affine(affine, np.asarray(focus_voxels, dtype=float))
+        focus_mm = [round(float(value), 2) for value in world_focus]
 
     lung_total_voxels = right_voxels + left_voxels
     return Metrics(
@@ -353,6 +445,7 @@ def _compute_from_paths(
         ),
         lesion_components=components,
         lesion_centroid_mm=centroid_mm,
+        lesion_focus_mm=focus_mm,
     )
 
 

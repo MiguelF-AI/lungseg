@@ -112,17 +112,24 @@ storage/derived/{id}/                # generado por la app
     { "key":"lesion",     "label":"Tejido dañado",    "kind":"mask", "color":"#ff2a2a", "url":"…" } ],
   "lesion_pct": 3.1, "lesion_l": 0.12 }   // solo desde métricas ya cacheadas; null si no hay
 
-// Metrics   (volúmenes en litros; centroide en mm de mundo NIfTI)
+// Metrics   (volúmenes en litros; centroide y foco en mm de mundo NIfTI)
 { "lung_right_l": 2.1, "lung_left_l": 1.8, "lung_total_l": 3.9,
   "lesion_l": 0.12, "lesion_pct_of_lung": 3.1,
   "lesion_by_lung_pct": { "right": 3.9, "left": 2.1 },
   "lesion_components": 14,
-  "lesion_centroid_mm": [x, y, z] }          // null si no hay lesión
+  "lesion_centroid_mm": [x, y, z],   // centroide global; null si no hay lesión
+  "lesion_focus_mm": [x, y, z] }     // punto garantizado DENTRO de la lesión; null si no hay
 
 // lesion_by_lung_pct: cada vóxel de lesión se asigna al pulmón cuya máscara rellenada por corte axial
 // (binary_fill_holes 2D; R231 deja huecos con consolidación densa) lo contiene; el denominador son los
 // vóxeles crudos de ese pulmón. `lesion_pct_of_lung` usa la fórmula del notebook (vóxeles de lesión /
 // vóxeles crudos de ambos pulmones).
+
+// lesion_centroid_mm puede caer FUERA de cualquier foco con lesiones multifocales o bilaterales
+// (p. ej. en el mediastino), así que no sirve para «centrar en lesión». `lesion_focus_mm` (F6) es el
+// centro del vóxel del componente conexo MÁS GRANDE (misma conectividad 6 que lesion_components) más
+// cercano en mm al centroide de ese componente: siempre cae sobre tejido segmentado.
+// La caché `metrics.json` lleva `schema_version`; al cambiar el esquema se descarta y se recalcula.
 ```
 
 Errores: 404 (id/layer inexistente o inválido), 422 (validación), 500 sin filtrar rutas absolutas. La app corre solo en `127.0.0.1`; CORS solo para `http://localhost:5173` en desarrollo.
@@ -194,8 +201,8 @@ Estado en [`PROGRESS.md`](PROGRESS.md). Un ticket = una rama = un conjunto de co
 **F5 · Estudios y atajos.** `StudyPicker` (◀ ▶, contador, buscar por id), `useHotkeys` (§7), modal de ayuda `?`, recordar la última vista elegida.
 *Aceptación:* todos los atajos funcionan y no se disparan escribiendo en inputs.
 
-**F6 · Métricas y «Centrar en lesión».** `MetricsCard`; botón/atajo `G` que lleva el crosshair al centroide de la lesión.
-*Aceptación:* las cifras coinciden con `/metrics`; con estudio sin lesión el botón está deshabilitado y la tarjeta lo dice.
+**F6 · Métricas y «Centrar en lesión».** `MetricsCard` con datos reales de `/metrics`; botón que lleva el crosshair a `lesion_focus_mm` (punto garantizado dentro de la lesión, porque el centroide global puede caer fuera). El atajo `G` se añade en F5 reutilizando esa función.
+*Aceptación:* las cifras coinciden con `/metrics`; con estudio sin lesión el botón está deshabilitado y la tarjeta lo dice; el crosshair queda sobre tejido dañado en 2D y 3D.
 
 **V0 · Verificación de alineación (manual + registro).** Con 3 casos reales: confirmar que CT y máscaras coinciden, que «derecha/izquierda» son anatómicamente correctas, y que el centroide cae sobre la lesión visible. Documentar el resultado en `HANDOFF.md`.
 *Si no alinean:* abrir ticket correctivo B2b (reorientar la CT derivada a la geometría de las máscaras).
