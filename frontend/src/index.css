@@ -14,3 +14,9 @@ body {
   width: 100vw;
   overflow: hidden;
 }
+
+/* Foco visible en controles del panel de capas (accesibilidad). */
+.ls-focusable:focus-visible {
+  outline: 2px solid var(--ls-accent);
+  outline-offset: 2px;
+}
