@@ -48,6 +48,17 @@ cd frontend && npm run build                                     # tsc -b && vit
 11. **Rendimiento del visor:** al cambiar visibilidad u opacidad de una capa **no se recarga el volumen**; se modifica el volumen ya cargado en NiiVue.
 12. **Terminología y aviso:** las máscaras son salida de un modelo experimental. La UI muestra un aviso fijo «Uso académico, no es un dispositivo médico». No uses lenguaje diagnóstico («tumor», «diagnóstico»); di «tejido dañado» o «opacidades segmentadas».
 13. **Alcance de UI:** no copies funciones de la referencia visual que el plan marca como fuera de alcance (segmentación por texto, etc.).
+14. **Efectos de React:** nunca copies props o listas a estado con un `useEffect`. Deriva el valor
+    durante el render, o reinicia el estado con `key={id}` (nunca sobre un componente que contenga el
+    visor, ver regla 16). Las dependencias de un efecto deben ser valores estables: nada de `[]`, `{}`,
+    `.map()` o `.filter()` creados en cada render.
+15. **Guardado de trabajo:** al terminar cada sesión, deja un commit `wip(<ID>): ...` en la rama del
+    ticket (nunca en main). No uses `git checkout .`, `git restore .`, `git reset --hard` ni `git stash` sin preguntar antes.
+16. **Visor NiiVue:** una sola instancia de NiiVue y un solo canvas durante toda la vida del visor. El
+    canvas siempre está en el DOM: nunca renderizado de forma condicional, nunca con `key` ligado al
+    estudio, y ningún ancestro suyo se remonta al cambiar de estudio. Cambiar de estudio es retirar los
+    volúmenes y cargar los nuevos en la misma instancia. NiiVue 0.47.0 no tiene método de destrucción:
+    una instancia huérfana sigue reaccionando a eventos de resize y lanza errores.
 
 ## Definición de hecho
 
