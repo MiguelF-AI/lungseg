@@ -62,9 +62,9 @@ export async function getStudy(id: string): Promise<StudyDetail> {
 /**
  * Métricas de un estudio (GET /api/studies/{id}/metrics).
  *
- * NOTA (ticket F2): este endpoint todavía NO existe (es el ticket B3).
- * Se define el tipo, la función y el hook, pero NO se llama desde la UI
- * hasta que B3 lo implemente. La MetricsCard sigue con datos simulados.
+ * La primera llamada de un estudio puede tardar: el backend calcula las
+ * métricas y las cachea (`storage/derived/{id}/metrics.json`). Las cifras
+ * son estimaciones de un modelo experimental (no diagnóstico).
  */
 export async function getMetrics(id: string): Promise<Metrics> {
   return fetchJson<Metrics>(`/studies/${encodeURIComponent(id)}/metrics`)

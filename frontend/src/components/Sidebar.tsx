@@ -1,7 +1,7 @@
 import LayerPanel from './LayerPanel'
 import MetricsCard from './MetricsCard'
 import StudyPicker from './StudyPicker'
-import type { StudyDetail } from '../api/types'
+import type { Metrics, StudyDetail } from '../api/types'
 import type { CtWindow, LayerVisualSettings } from '../layers'
 
 export function Sidebar({
@@ -15,6 +15,12 @@ export function Sidebar({
   onLayerChange,
   ctWindow,
   onCtWindowChange,
+  metrics,
+  metricsLoading,
+  metricsError,
+  onRetryMetrics,
+  onCenterLesion,
+  canCenterLesion,
 }: {
   className?: string
   onStudySelect: (id: string) => void
@@ -26,7 +32,24 @@ export function Sidebar({
   onLayerChange: (key: string, patch: Partial<LayerVisualSettings>) => void
   ctWindow: CtWindow
   onCtWindowChange: (window: CtWindow) => void
+  metrics: Metrics | null
+  metricsLoading: boolean
+  metricsError: string | null
+  onRetryMetrics: () => void
+  onCenterLesion: () => void
+  canCenterLesion: boolean
 }) {
+  const centerHint =
+    study === null
+      ? 'Selecciona un estudio para centrar en la lesión.'
+      : metricsError
+        ? 'No se pudieron cargar las métricas del estudio.'
+        : metrics === null
+          ? 'Cargando las métricas del estudio…'
+          : metrics.lesion_components === 0
+            ? 'Este estudio no tiene lesión segmentada.'
+            : 'El visor aún no está listo.'
+
   return (
     <aside
       className={className}
@@ -98,7 +121,13 @@ export function Sidebar({
       />
 
       {/* Métricas */}
-      <MetricsCard metrics={null} />
+      <MetricsCard
+        metrics={metrics}
+        loading={metricsLoading}
+        error={metricsError}
+        hasStudy={study !== null}
+        onRetry={onRetryMetrics}
+      />
 
       {/* Acciones */}
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--ls-border)' }}>
@@ -107,24 +136,46 @@ export function Sidebar({
         </div>
         <button
           type="button"
-          disabled
-          aria-label="Centrar en lesión (deshabilitado hasta F6)"
+          className="ls-focusable"
+          disabled={!canCenterLesion}
+          aria-label="Centrar en lesión"
+          aria-describedby={
+            canCenterLesion ? undefined : 'ls-center-lesion-hint'
+          }
+          onClick={onCenterLesion}
           style={{
             width: '100%',
             padding: '10px',
             marginBottom: 8,
-            border: '1px solid var(--ls-disabled-text)',
+            border: canCenterLesion
+              ? '1px solid var(--ls-accent)'
+              : '1px solid var(--ls-disabled-text)',
             borderRadius: 'var(--ls-radius)',
-            background: 'var(--ls-disabled-bg)',
-            color: 'var(--ls-disabled-text)',
+            background: canCenterLesion
+              ? 'var(--ls-accent)'
+              : 'var(--ls-disabled-bg)',
+            color: canCenterLesion ? '#ffffff' : 'var(--ls-disabled-text)',
             fontSize: 13,
             fontWeight: 500,
-            cursor: 'not-allowed',
+            cursor: canCenterLesion ? 'pointer' : 'not-allowed',
             outline: 'none',
           }}
         >
           Centrar en lesión
         </button>
+        {!canCenterLesion && (
+          <p
+            id="ls-center-lesion-hint"
+            style={{
+              fontSize: 11,
+              lineHeight: 1.5,
+              color: 'var(--ls-text-muted)',
+              margin: '0 0 8px',
+            }}
+          >
+            {centerHint}
+          </p>
+        )}
         <button
           type="button"
           disabled

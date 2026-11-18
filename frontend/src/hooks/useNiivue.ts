@@ -87,6 +87,19 @@ function rebakeOverlays(nv: Niivue): void {
   nv.drawScene()
 }
 
+/**
+ * Clave de capa a partir del `name` de un volumen.
+ *
+ * `buildVolumeOptions` nombra los volúmenes `<key>.nii.gz` porque NiiVue
+ * 0.47.0 necesita una extensión en `name` (ver `getFileExt`). En la lectura
+ * de posición `values[].name` es exactamente ese nombre y `id` es un UUID
+ * (`v4()`), así que la capa se identifica quitando la extensión.
+ */
+function volumeLayerKey(name: string | undefined | null): string | null {
+  if (!name) return null
+  return name.replace(/\.nii(\.gz)?$/i, '')
+}
+
 /** Modos de vista del visor (estilo ViewerToolbar). */
 export type ViewMode = 'Axial' | 'Coronal' | 'Sagital' | 'Multi' | '3D'
 
@@ -224,6 +237,35 @@ export function useNiivue() {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [location, setLocation] = useState<CrosshairLocation | null>(null)
+
+  /**
+   * Lleva el crosshair a una posición en mm de mundo (F6: «Centrar en lesión»).
+   *
+   * Secuencia y por qué (verificado en el código de NiiVue 0.47.0):
+   * - `mm2frac(mm, 0, true)` usa el affine real (`matRAS`), el mismo sistema
+   *   con el que `createOnLocationChange` calcula los mm que se muestran. Sin
+   *   `force=true` se usaría `frac2mmOrtho` (rotación a cero) y en volúmenes
+   *   oblicuos el cruce caería en otro vóxel.
+   * - `scene.crosshairPos` es el estado vivo del crosshair (`get scene()`), así
+   *   que basta asignarlo; `createOnLocationChange()` refresca la lectura y
+   *   `drawScene()` repinta 2D/MPR/3D. No se recargan volúmenes.
+   * - Sin volúmenes cargados, `mm2frac` caería a `sceneExtentsMinMax` y daría
+   *   una fracción incorrecta, así que se sale sin tocar nada.
+   */
+  const centerOnLesion = useCallback((mm: [number, number, number]) => {
+    const nv = nvRef.current
+    if (!nv || nv.volumes.length === 0) return false
+    if (!mm.every((value) => Number.isFinite(value))) return false
+    const frac = nv.mm2frac(mm, 0, true)
+    // Margen de seguridad ante errores de coma flotante en el borde.
+    for (let axis = 0; axis < 3; axis++) {
+      frac[axis] = Math.min(1, Math.max(0, frac[axis]))
+    }
+    nv.scene.crosshairPos = frac
+    nv.createOnLocationChange()
+    nv.drawScene()
+    return true
+  }, [])
 
   /** Vacia todos los volúmenes de la instancia actual sin destruir el canvas ni la instancia. */
   const clearVolumes = useCallback(() => {
@@ -440,6 +482,10 @@ export function useNiivue() {
       crosshairColor: [1, 0, 0, 1], // crosshair rojo
       isRadiologicalConvention: false, // convención neurológica por defecto
       isCornerOrientationText: true, // letras de orientación visibles
+      // En modo RENDER el crosshair solo se dibuja con esta opción activa
+      // (`show3Dcrosshair` vale false por defecto en 0.47.0). F6 lo necesita
+      // para que «Centrar en lesión» se vea también en 3D.
+      show3Dcrosshair: true,
       backColor: [0.039, 0.047, 0.078, 1], // #0a0c14 (fondo del visor)
     })
     nvRef.current = newNv
@@ -453,18 +499,34 @@ export function useNiivue() {
             const l = loc as NiiVueLocation
             if (!l || !l.values) return
 
-            // Valor HU del primer volumen (CT) bajo el cursor.
-            const ctValue = l.values.find((v) => v.id === 'ct' || v.name === 'ct')
+            // Valor HU del volumen base (CT) bajo el cursor.
+            const ctValue = l.values.find(
+              (v) => volumeLayerKey(v.name) === 'ct',
+            )
             const hu = ctValue ? ctValue.value : null
 
-            // Nombre de la capa de máscara bajo el cursor (si no es CT).
-            const maskValue = l.values.find(
-              (v: NiiVueLocationValue) => (v.id || v.name) && (v.id || v.name) !== 'ct',
-            )
-            const layerName = maskValue ? (maskValue.name || maskValue.id || null) : null
+            // Capa de máscara bajo el cursor: la primera cuyo valor no sea 0,
+            // con prioridad para la lesión (F6: el cruce sobre tejido dañado
+            // debe leerse como «lesion», no como la primera máscara cargada).
+            const masks = l.values.filter((v: NiiVueLocationValue) => {
+              const key = volumeLayerKey(v.name)
+              return key !== null && key !== 'ct'
+            })
+            const activeMask =
+              masks.find(
+                (v: NiiVueLocationValue) =>
+                  volumeLayerKey(v.name) === 'lesion' && v.value !== 0,
+              ) ?? masks.find((v: NiiVueLocationValue) => v.value !== 0)
+            const layerName = activeMask
+              ? volumeLayerKey(activeMask.name)
+              : null
 
             setLocation({
               mm: [l.mm[0], l.mm[1], l.mm[2]],
+              // `l.vox` sigue la convención de NiiVue (`frac2vox`: índice en
+              // espacio RAS, con los ejes que NiiVue invierte al cargar). En
+              // estos estudios sale espejado en x/y frente al índice nativo de
+              // nibabel; la posición fiable es `mm` (ver HANDOFF §4).
               vox: [l.vox[0], l.vox[1], l.vox[2]],
               hu,
               layerName,
@@ -635,6 +697,7 @@ export function useNiivue() {
     loadStudy,
     applyVisualSettings,
     setViewMode,
+    centerOnLesion,
     clearVolumes,
     destroyInstance,
   }

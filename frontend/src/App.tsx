@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useStudy } from './hooks/useStudy'
 import { useStudies } from './hooks/useStudies'
-import NiiViewer from './components/NiiViewer'
+import { useMetrics } from './hooks/useMetrics'
+import NiiViewer, { type NiiViewerHandle } from './components/NiiViewer'
 import Sidebar from './components/Sidebar'
 import ErrorBoundary from './components/ErrorBoundary'
 import ViewerToolbar from './components/ViewerToolbar'
@@ -37,6 +38,20 @@ export default function App() {
     refetch: loadStudy,
   } = useStudy()
 
+  // Métricas del estudio y referencia al visor (botón «Centrar en lesión»).
+  // Las cifras se derivan en el render y solo se muestran si pertenecen al
+  // estudio seleccionado; el hook puede tener las de otro estudio mientras
+  // llega la respuesta nueva. No hay efectos que copien props a estado.
+  const {
+    studyId: metricsStudyId,
+    metrics: loadedMetrics,
+    loading: metricsRequestLoading,
+    error: metricsRequestError,
+    refetch: refetchMetrics,
+  } = useMetrics()
+  const [viewerReady, setViewerReady] = useState(false)
+  const viewerRef = useRef<NiiViewerHandle | null>(null)
+
   // El estudio seleccionado se deriva durante el render: el elegido por el
   // usuario, o el primero de la lista, o null si no hay lista todavía.
   // No hay useEffect que copie listas o props a estado (evita bucles).
@@ -44,6 +59,17 @@ export default function App() {
     () => userSelectedId ?? studies[0]?.id ?? null,
     [userSelectedId, studies],
   )
+
+  // Métricas visibles: solo las del estudio seleccionado. Mientras el hook
+  // tiene el estudio anterior (o ninguna respuesta), la tarjeta está en carga
+  // si hay estudio, así que nunca se mezclan cifras de dos estudios.
+  const metricsAreCurrent =
+    metricsStudyId !== null && metricsStudyId === selectedStudyId
+  const metrics = metricsAreCurrent ? loadedMetrics : null
+  const metricsLoading = metricsAreCurrent
+    ? metricsRequestLoading
+    : selectedStudyId !== null
+  const metricsError = metricsAreCurrent ? metricsRequestError : null
 
   // Ajustes efectivos del estudio actual: defaults del contrato + cambios
   // del usuario. Se memoiza para que NiiViewer reciba una referencia estable
@@ -83,11 +109,43 @@ export default function App() {
     }
   }, [selectedStudyId, loadStudy])
 
+  const handleRetryMetrics = useCallback(() => {
+    if (selectedStudyId) {
+      void refetchMetrics(selectedStudyId)
+    }
+  }, [selectedStudyId, refetchMetrics])
+
+  // «Centrar en lesión» usa `lesion_focus_mm` (punto garantizado dentro de la
+  // lesión), no el centroide global, que puede caer fuera. El visor mueve el
+  // crosshair de la instancia viva: no recarga volúmenes (regla 16).
+  const handleCenterLesion = useCallback(() => {
+    const focus = metrics?.lesion_focus_mm
+    if (!focus || focus.length !== 3) return
+    const [x, y, z] = focus
+    if (![x, y, z].every((value) => Number.isFinite(value))) return
+    viewerRef.current?.centerOnLesion([x, y, z])
+  }, [metrics])
+
+  const handleViewerReadyChange = useCallback((ready: boolean) => {
+    setViewerReady(ready)
+  }, [])
+
+  // Habilitado solo con lesión segmentada del estudio actual y visor listo
+  // (con `study` cargado, para no mover el cruce del estudio anterior).
+  const canCenterLesion =
+    study !== null && metrics?.lesion_focus_mm != null && viewerReady
+
   // Al cambiar de estudio, cargar su detalle (GET /api/studies/{id}).
   useEffect(() => {
     if (!selectedStudyId) return
     void loadStudy(selectedStudyId)
   }, [selectedStudyId, loadStudy])
+
+  // Al cambiar de estudio, pedir sus métricas (GET /api/studies/{id}/metrics).
+  useEffect(() => {
+    if (!selectedStudyId) return
+    void refetchMetrics(selectedStudyId)
+  }, [selectedStudyId, refetchMetrics])
 
   return (
     <div
@@ -109,6 +167,12 @@ export default function App() {
         onLayerChange={handleLayerChange}
         ctWindow={ctWindow}
         onCtWindowChange={handleCtWindowChange}
+        metrics={metrics}
+        metricsLoading={metricsLoading}
+        metricsError={metricsError}
+        onRetryMetrics={handleRetryMetrics}
+        onCenterLesion={handleCenterLesion}
+        canCenterLesion={canCenterLesion}
       />
 
       <main
@@ -122,10 +186,12 @@ export default function App() {
         {/* Visor NiiVue (F3), aislado por error boundary para no tumbar la sidebar. */}
         <ErrorBoundary>
           <NiiViewer
+            ref={viewerRef}
             study={study}
             viewMode={viewMode}
             layerSettings={layerSettings}
             ctWindow={ctWindow}
+            onReadyChange={handleViewerReadyChange}
           />
         </ErrorBoundary>
 

@@ -1,8 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import type { StudyDetail } from '../api/types'
 import { useNiivue, type ViewMode } from '../hooks/useNiivue'
 import type { CtWindow, LayerVisualSettings } from '../layers'
+
+/** Color de la insignia de capa en la lectura de posición (por clave de capa). */
+const LAYER_BADGE_COLORS: Record<string, string> = {
+  lesion: 'var(--ls-layer-lesion)',
+  lung_right: '#4169e1',
+  lung_left: '#3cb371',
+}
+
+/** Props del visor. */
+export interface NiiViewerProps {
+  study: StudyDetail | null
+  viewMode: ViewMode
+  layerSettings: Record<string, LayerVisualSettings>
+  ctWindow: CtWindow
+  /** Avisa de si el visor tiene volúmenes pintados (para habilitar acciones). */
+  onReadyChange?: (ready: boolean) => void
+}
+
+/** Funciones que el visor expone al padre (sin desmontar ni remontar nada). */
+export interface NiiViewerHandle {
+  /** Lleva el crosshair a una posición en mm de mundo. `false` si no puede. */
+  centerOnLesion: (mm: [number, number, number]) => boolean
+}
 
 /**
  * Visor NiiVue para LungSeg.
@@ -19,6 +42,10 @@ import type { CtWindow, LayerVisualSettings } from '../layers'
  * Así el canvas no se desmonta al cambiar de estudio y la instancia de NiiVue
  * sigue ligada al mismo elemento.
  *
+ * Hacia el padre expone `centerOnLesion` por ref (botón «Centrar en lesión»)
+ * y avisa de si hay volúmenes listos con `onReadyChange`; ninguno de los dos
+ * remonta el canvas ni recarga volúmenes (regla 16).
+ *
  * Casos de React gestionados:
  *  - StrictMode monta/desmonta dos veces en dev: la instancia NiiVue se
  *    crea una sola vez por canvas y se reutiliza.
@@ -28,17 +55,10 @@ import type { CtWindow, LayerVisualSettings } from '../layers'
  *  - Estudio sin CT: aviso claro sin lanzar errores en consola.
  *  - WebGL2 no disponible: aviso con instrucciones en lugar de pantalla negra.
  */
-export function NiiViewer({
-  study,
-  viewMode,
-  layerSettings,
-  ctWindow,
-}: {
-  study: StudyDetail | null
-  viewMode: ViewMode
-  layerSettings: Record<string, LayerVisualSettings>
-  ctWindow: CtWindow
-}) {
+export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function NiiViewer(
+  { study, viewMode, layerSettings, ctWindow, onReadyChange },
+  ref,
+) {
   const retryCountRef = useRef(0)
   const {
     canvasRef,
@@ -49,7 +69,16 @@ export function NiiViewer({
     loadStudy,
     applyVisualSettings,
     setViewMode,
+    centerOnLesion,
   } = useNiivue()
+
+  // El padre solo necesita la función, no la instancia de NiiVue.
+  useImperativeHandle(ref, () => ({ centerOnLesion }), [centerOnLesion])
+
+  // Informar al padre de si hay volúmenes listos (sistema externo → padre).
+  useEffect(() => {
+    onReadyChange?.(ready)
+  }, [ready, onReadyChange])
 
   const [retrying, setRetrying] = useState(false)
 
@@ -273,7 +302,16 @@ export function NiiViewer({
               <>
                 <span style={{ color: 'var(--ls-text-muted)' }}>·</span>
                 <span style={{ color: 'var(--ls-text-muted)' }}>capa</span>
-                <span style={{ color: '#4169e1', fontWeight: 600 }}>{location.layerName}</span>
+                <span
+                  style={{
+                    color:
+                      LAYER_BADGE_COLORS[location.layerName] ??
+                      'var(--ls-text)',
+                    fontWeight: 600,
+                  }}
+                >
+                  {location.layerName}
+                </span>
               </>
             )}
           </div>
@@ -284,6 +322,6 @@ export function NiiViewer({
       )}
     </div>
   )
-}
+})
 
 export default NiiViewer
