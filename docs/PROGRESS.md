@@ -18,7 +18,7 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 | 1 | F4 | Panel de capas | F3 | ✅ |
 | 1 | V0 | Verificación de alineación con casos reales | F4, B2 | ✅ |
 | 1 | F6 | Métricas y «Centrar en lesión» | F3, B3 | ✅ |
-| 1 | F5 | Selector de estudios y atajos | F3 | ⬜ |
+| 1 | F5 | Selector de estudios y atajos | F3 | ✅ |
 | 1 | F7 | Pulido 3D | F3, F4 | ⬜ |
 | 1 | F8 | Exportar (ZIP + captura) | F4, B2 | ⬜ |
 | 2 | U1 | Subida de estudios (opcional) | B2, F4 | ⬜ |
@@ -38,6 +38,56 @@ Formato de cada entrada (la más reciente arriba):
 - Desviaciones del plan y por qué:
 - Pendiente / siguiente paso:
 ```
+
+### CP-011 · 2026-11-17 · F5
+- Qué cambió: frontend (rama feat/F5-hotkeys, commit ce7847a).
+  - Nuevo `frontend/src/hooks/useHotkeys.ts`: listener único en `window` en
+    fase de CAPTURA (se registra una vez, no por render), preventDefault +
+    stopPropagation para las teclas gestionadas, traga Shift+Slash (alert de
+    NiiVue), ignora foco en input/textarea/select/contenteditable (el canvas
+    de NiiVue no cuenta como campo de texto), ignora Ctrl/Meta/Alt salvo
+    AltGraph (así AltGr+[ ] funcionan), compara e.key en minúsculas, ignora
+    repeticiones. `resolveHotkey(e, helpOpen)` es pura y testeable (sin DOM).
+  - Atajos (PLAN §7): 1-5 modo de vista (misma fuente de verdad que
+    ViewerToolbar, así `V` de NiiVue se desactivó con viewModeHotKey='' y no
+    discrepa), G centrar en lesión (lesion_focus_mm de F6; si no hay lesión o
+    visor no listo, no hace nada y anuncia), E toggle lesión, P toggle
+    pulmones (si alguno visible oculta ambos, si no muestra ambos; ignora si
+    la capa no existe), R convención radiológica (setRadiologicalConvention +
+    drawScene, indicador 'Radiológica'/'Neurológica'), [ ] / , . estudio
+    anterior/siguiente (misma lógica que ◀▶ vía `frontend/src/nav.ts`, sin
+    duplicar código), ? ayuda. Con modal de ayuda abierto solo actúan Esc y ?.
+  - Nuevo `frontend/src/components/HelpDialog.tsx`: role="dialog",
+    aria-modal, título, lista de atajos con alias, foco atrapado (sentinelas
+    de tab), Esc y clic fuera cierran, devuelve el foco al abrir. Textos en
+    español.
+  - `frontend/src/components/StudyPicker.tsx`: busca por id (subcadena, sin
+    mayúsculas), accesible con teclado (flechas eligen, Enter selecciona, Esc
+    limpia), mantiene ◀▶ y contador n/total. Tecleando en el buscador no
+    dispara atajos.
+  - `frontend/src/App.tsx`: localStorage de vista elegida y convención
+    radiológica (try/catch + validación, Multi/neurológica por defecto),
+    aplicado al arrancar con initializers lazy (sin parpadeo); región
+    aria-live="polite" para feedback breve; botón 'Atajos' en la sidebar;
+    NiiViewer recibe `radiological`.
+  - `frontend/src/hooks/useNiivue.ts` + `NiiViewer.tsx`: expone
+    setRadiologicalConvention/getRadiologicalConvention, constructor con
+    viewModeHotKey='', aplica convención sin recargar volúmenes.
+- Cómo se verificó: ruff check ✅, ruff format --check ✅, pyright 0 errores,
+  pytest 33 tests, npm run build 0 errores de tipo. Backend uvicorn :8000 y
+  frontend Vite :5173 arrancados contra los 2 estudios reales de Data/
+  (33cf78a8… y 6b79babd…): /api/health → ok, /api/studies → 2 estudios con
+  métricas (15.64 % / 0.680646 L y 43.48 % / 0.946993 L), frontend sirve
+  HTTP 200. **Verificación visual (a-g) NO realizada:** no dispuse de
+  navegador para abrir la UI y comprobar los atajos, el modal, el foco, el
+  canvas único (1 canvas) ni la persistencia tras recarga. Se reporta como
+  pendiente al humano.
+- Desviaciones del plan y por qué: ninguna respecto al alcance de F5; no se
+  tocaron presets de cámara 3D ni plano de corte (F7), ni exportar (F8), ni
+  contratos §5/§6, ni la versión de NiiVue (0.47.0).
+- Pendiente / siguiente paso: verificación visual con navegador (a-g); luego
+  F7 (pulido 3D; antes, decidir ticket de actualización de NiiVue, HANDOFF
+  §4) y F8.
 
 ### CP-010 · 2026-11-17 · F6
 - Qué cambió: **backend** (`b4dc129`): `metrics.py` añade `lesion_focus_mm` (vóxel del **mayor componente conexo** de la lesión más cercano en mm de mundo a su propio centroide, centro del vóxel en mm: punto garantizado dentro de la lesión), caché `metrics.json` con `schema_version: 2` (las cachés de B3, sin versión, se recalculan una vez); `schemas.py` + `frontend/src/api/types.ts` + `docs/PLAN.md` §6 con el campo nuevo (regla 01); 4 tests nuevos. **frontend**: `useMetrics` conectado en `App.tsx` (estado con `studyId` + token; la tarjeta solo pinta cifras del estudio seleccionado, nunca del anterior), `MetricsCard` con datos reales (litros de cada pulmón, tejido dañado, % sobre pulmón, línea secundaria «Focos · Derecho · Izquierdo»), estados «Calculando métricas…», error fijo + «Reintentar», «Este estudio no tiene lesión segmentada», `null` → «—» (un 0 real se muestra como 0) y sin insignia de datos de ejemplo; `Sidebar` con el botón «Centrar en lesión» (deshabilitado con pista según estudio/carga/error/sin lesión/visor no listo); `useNiivue.centerOnLesion` mueve el crosshair con `mm2frac(mm, 0, true)` + `scene.crosshairPos` + `createOnLocationChange()` + `drawScene()` **sin recargar volúmenes** (regla 11/16); `show3Dcrosshair: true`; la lectura de posición identifica la capa por el `name` del volumen (`<key>.nii.gz`) porque en 0.47.0 `id` es un UUID, y prioriza `lesion` cuando su valor ≠ 0; `NiiViewer` pasa a `forwardRef` + `useImperativeHandle` (solo expone la función) y avisa al padre con `onReadyChange`; `api/client.ts` actualiza el comentario de `getMetrics` (ya no es un endpoint futuro).
