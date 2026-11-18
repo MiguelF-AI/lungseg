@@ -245,7 +245,7 @@ Orden sugerido: A0 → B1 → B2 → F1 → F2 → F3 → F4 → V0 → B3 → F
 |----|--------|------------|
 | R1 | CT original y máscaras en orientaciones distintas | V0 temprano; fallback B2b. |
 | R2 | CT de cientos de MB: carga lenta y memoria en el navegador | CT derivada comprimida, caché 304, medir en V0; si hace falta, versión reducida para el 3D. |
-| R3 | La API de NiiVue difiere de lo asumido aquí (capas, colormaps personalizados, cámara 3D, captura) | Regla 08: verificar en `node_modules`; documentar adaptaciones. |
+| R3 | La API de NiiVue difiere de lo asumido aquí (capas, colormaps personalizados, cámara 3D, captura) | Regla 08: verificar en `node_modules`; documentar adaptaciones. Actualizado a 0.69.0 en ticket N1 (chore/N1-niivue-upgrade): todas las APIs usadas se verificaron contra el `.d.ts` real con firmas idénticas; los métodos `@internal` (`refreshLayers`, `mm2frac`, `createOnLocationChange`) siguen presentes. |
 | R4 | El render 3D volumétrico no distingue bien la lesión translúcida | Subir opacidad/contraste de la lesión; F7 contempla mallas. |
 | R5 | WebGL2 desactivado o sin aceleración por hardware en el navegador | Detectarlo y mostrar un aviso claro con instrucciones. |
 | R6 | COPLE-Net puede segmentar mal en otro dataset | No es del visor, pero la UI mantiene el aviso de «uso académico» (regla 12). |

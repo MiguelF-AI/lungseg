@@ -57,8 +57,9 @@ cd frontend && npm run build                                     # tsc -b && vit
 16. **Visor NiiVue:** una sola instancia de NiiVue y un solo canvas durante toda la vida del visor. El
     canvas siempre está en el DOM: nunca renderizado de forma condicional, nunca con `key` ligado al
     estudio, y ningún ancestro suyo se remonta al cambiar de estudio. Cambiar de estudio es retirar los
-    volúmenes y cargar los nuevos en la misma instancia. NiiVue 0.47.0 no tiene método de destrucción:
-    una instancia huérfana sigue reaccionando a eventos de resize y lanza errores.
+    volúmenes y cargar los nuevos en la misma instancia. NiiVue 0.69.0 expone `cleanup()` (documentado
+    para desenganchar el canvas del DOM): úsalo **solo** al desmontar de verdad, nunca en el doble
+    montaje de StrictMode; una instancia huérfana sigue reaccionando a eventos de resize y lanza errores.
 
 ## Definición de hecho
 

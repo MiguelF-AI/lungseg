@@ -19,6 +19,7 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 | 1 | V0 | Verificación de alineación con casos reales | F4, B2 | ✅ |
 | 1 | F6 | Métricas y «Centrar en lesión» | F3, B3 | ✅ |
 | 1 | F5 | Selector de estudios y atajos | F3 | ✅ |
+| 1 | N1 | Actualización de @niivue/niivue 0.47.0 → 0.69.0 | F5 | ✅ |
 | 1 | F7 | Pulido 3D | F3, F4 | ⬜ |
 | 1 | F8 | Exportar (ZIP + captura) | F4, B2 | ⬜ |
 | 2 | U1 | Subida de estudios (opcional) | B2, F4 | ⬜ |
@@ -88,6 +89,12 @@ Formato de cada entrada (la más reciente arriba):
 - Pendiente / siguiente paso: verificación visual con navegador (a-g); luego
   F7 (pulido 3D; antes, decidir ticket de actualización de NiiVue, HANDOFF
   §4) y F8.
+
+### CP-012 · 2026-11-17 · N1
+- Qué cambió: `frontend/package.json` (`@niivue/niivue` de `0.47.0` a `0.69.0`, fijada exacta sin `^`) y `frontend/package-lock.json` regenerado. **Sin cambios en código fuente:** todas las APIs usadas (`attachToCanvas`, `init`, `loadVolumes`, `removeVolumeByIndex`, `setSliceType`, `setRadiologicalConvention`, `getRadiologicalConvention`, `setColormap`, `addColormap`, `refreshLayers`, `updateGLVolume`, `drawScene`, `mm2frac`, `frac2mm`, `createOnLocationChange`, `scene.crosshairPos`, `onLocationChange`, `viewModeHotKey`) se verificaron contra el `.d.ts` real de 0.69.0 con firmas idénticas; el formato de `ColorMap` no cambió; `NiivueLocation`/`NiuiVueLocationValue` conservan `mm`, `vox`, `values[].name`, `values[].value`. `cleanup()` existe ahora pero solo se usaría al desmontaje real (regla 16); no se invoca en este cambio.
+- Cómo se verificó: `npm run build` (tsc -b + vite build) 0 errores de tipo (advertencia de chunk >500 kB preexistente). Backend en `:8000`: `/api/health` → ok, `/api/studies` → 2 estudios reales con métricas. Frontend en `:5173`: raíz 200, proxy `/api/health` → 200. **Verificación visual (a-g) pendiente de navegador real; el usuario reportó prueba manual sin errores.**
+- Desviaciones del plan y por qué: ninguna respecto al alcance de N1; no se tocaron contratos §5/§6, ni backend, ni se añadieron funciones nuevas. Los métodos `@internal` de 0.69.0 (`refreshLayers`, `mm2frac`, `createOnLocationChange`) siguen presentes con las mismas firmas; se anotan como riesgo en HANDOFF §4.
+- Pendiente / siguiente paso: F7 (pulido 3D) y F8. Verificación visual con navegador real pendiente.
 
 ### CP-010 · 2026-11-17 · F6
 - Qué cambió: **backend** (`b4dc129`): `metrics.py` añade `lesion_focus_mm` (vóxel del **mayor componente conexo** de la lesión más cercano en mm de mundo a su propio centroide, centro del vóxel en mm: punto garantizado dentro de la lesión), caché `metrics.json` con `schema_version: 2` (las cachés de B3, sin versión, se recalculan una vez); `schemas.py` + `frontend/src/api/types.ts` + `docs/PLAN.md` §6 con el campo nuevo (regla 01); 4 tests nuevos. **frontend**: `useMetrics` conectado en `App.tsx` (estado con `studyId` + token; la tarjeta solo pinta cifras del estudio seleccionado, nunca del anterior), `MetricsCard` con datos reales (litros de cada pulmón, tejido dañado, % sobre pulmón, línea secundaria «Focos · Derecho · Izquierdo»), estados «Calculando métricas…», error fijo + «Reintentar», «Este estudio no tiene lesión segmentada», `null` → «—» (un 0 real se muestra como 0) y sin insignia de datos de ejemplo; `Sidebar` con el botón «Centrar en lesión» (deshabilitado con pista según estudio/carga/error/sin lesión/visor no listo); `useNiivue.centerOnLesion` mueve el crosshair con `mm2frac(mm, 0, true)` + `scene.crosshairPos` + `createOnLocationChange()` + `drawScene()` **sin recargar volúmenes** (regla 11/16); `show3Dcrosshair: true`; la lectura de posición identifica la capa por el `name` del volumen (`<key>.nii.gz`) porque en 0.47.0 `id` es un UUID, y prioriza `lesion` cuando su valor ≠ 0; `NiiViewer` pasa a `forwardRef` + `useImperativeHandle` (solo expone la función) y avisa al padre con `onReadyChange`; `api/client.ts` actualiza el comentario de `getMetrics` (ya no es un endpoint futuro).
