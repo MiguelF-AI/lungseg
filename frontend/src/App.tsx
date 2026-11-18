@@ -3,11 +3,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStudy } from './hooks/useStudy'
 import { useStudies } from './hooks/useStudies'
 import { useMetrics } from './hooks/useMetrics'
+import { useHotkeys } from './hooks/useHotkeys'
 import NiiViewer, { type NiiViewerHandle } from './components/NiiViewer'
 import Sidebar from './components/Sidebar'
 import ErrorBoundary from './components/ErrorBoundary'
 import ViewerToolbar from './components/ViewerToolbar'
+import HelpDialog from './components/HelpDialog'
+import { moveStudyIndex } from './nav'
 import type { ViewMode } from './hooks/useNiivue'
+
+/** Orden de los modos de vista (coincide con ViewerToolbar). */
+const VIEW_MODES: ViewMode[] = ['Multi', 'Axial', 'Coronal', 'Sagital', '3D']
 import {
   DEFAULT_CT_WINDOW,
   defaultLayerSettings,
@@ -17,7 +23,47 @@ import {
 
 export default function App() {
   const [userSelectedId, setUserSelectedId] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<ViewMode>('Multi')
+  // Vista elegida y convención radiológica: se recuerdan en localStorage con
+  // validación (si no es válido: Multi y neurológica). Se aplican al arrancar
+  // con initializers lazy → sin parpadeo visible.
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const raw = localStorage.getItem('lungseg.viewMode')
+      if (raw == null) return 'Multi'
+      const m = raw as ViewMode
+      return VIEW_MODES.includes(m) ? m : 'Multi'
+    } catch {
+      return 'Multi'
+    }
+  })
+  const [radiological, setRadiological] = useState<boolean>(() => {
+    try {
+      const raw = localStorage.getItem('lungseg.radiological')
+      if (raw == null) return false
+      return raw === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  // Anuncio breve para la región aria-live (feedback de atajos).
+  const [announce, setAnnounce] = useState('')
+  const onAnnounce = useCallback((message: string) => {
+    // Vaciar y volver a setear para forzar el anuncio de aria-live incluso si
+    // el mensaje se repite.
+    setAnnounce('')
+    setTimeout(() => setAnnounce(message), 0)
+  }, [])
+
+  // Persistir la vista elegida y la convención en localStorage (sin romper si
+  // el storage no está disponible).
+  useEffect(() => {
+    try {
+      localStorage.setItem('lungseg.viewMode', viewMode)
+    } catch {
+      // storage no disponible: no romper nada.
+    }
+  }, [viewMode])
 
   // Única fuente de verdad de los ajustes de capas y de la ventana de la CT.
   // Solo se guardan los cambios del usuario; los valores por defecto se
@@ -126,6 +172,58 @@ export default function App() {
     viewerRef.current?.centerOnLesion([x, y, z])
   }, [metrics])
 
+  // Alternar visibilidad de la capa de lesión (solo si existe).
+  const handleToggleLesion = useCallback(() => {
+    const exists = study?.layers.some((l) => l.key === 'lesion') ?? false
+    if (!exists) return
+    const visible = layerSettings.lesion?.visible ?? true
+    handleLayerChange('lesion', { visible: !visible })
+  }, [study, layerSettings, handleLayerChange])
+
+  // Mostrar/ocultar ambos pulmones: si alguno está visible, oculta ambos;
+  // si no, muestra ambos. Ignora si no existe ninguna capa de pulmón.
+  const handleToggleLungs = useCallback(() => {
+    const lungKeys = ['lung_right', 'lung_left']
+    const exists = study?.layers.some((l) => lungKeys.includes(l.key)) ?? false
+    if (!exists) return
+    const rightVisible = layerSettings.lung_right?.visible ?? true
+    const leftVisible = layerSettings.lung_left?.visible ?? true
+    const next = !(rightVisible || leftVisible)
+    handleLayerChange('lung_right', { visible: next })
+    handleLayerChange('lung_left', { visible: next })
+  }, [study, layerSettings, handleLayerChange])
+
+  // Alternar convención radiológica y redibujar en la instancia viva.
+  const handleToggleRadiological = useCallback(() => {
+    const next = !radiological
+    setRadiological(next)
+    try {
+      localStorage.setItem('lungseg.radiological', String(next))
+    } catch {
+      // storage no disponible: no romper nada.
+    }
+    viewerRef.current?.setRadiologicalConvention(next)
+  }, [radiological, setRadiological])
+
+  // Estudio anterior/siguiente con la misma lógica que ◀ ▶.
+  const handlePrevStudy = useCallback(() => {
+    if (!studies.length) return
+    const current = studies.findIndex((s) => s.id === selectedStudyId)
+    const next = moveStudyIndex(studies, current >= 0 ? current : 0, -1)
+    setUserSelectedId(studies[next].id)
+  }, [studies, selectedStudyId])
+
+  const handleNextStudy = useCallback(() => {
+    if (!studies.length) return
+    const current = studies.findIndex((s) => s.id === selectedStudyId)
+    const next = moveStudyIndex(studies, current >= 0 ? current : 0, 1)
+    setUserSelectedId(studies[next].id)
+  }, [studies, selectedStudyId])
+
+  const currentStudyIdx = studies.findIndex((s) => s.id === selectedStudyId)
+  const studyIndex = currentStudyIdx >= 0 ? currentStudyIdx + 1 : 1
+  const studyCount = studies.length
+
   const handleViewerReadyChange = useCallback((ready: boolean) => {
     setViewerReady(ready)
   }, [])
@@ -146,6 +244,30 @@ export default function App() {
     if (!selectedStudyId) return
     void refetchMetrics(selectedStudyId)
   }, [selectedStudyId, refetchMetrics])
+
+  // Estado del modal de ayuda.
+  const [helpOpen, setHelpOpen] = useState(false)
+
+  // Atajos de teclado: registrados UNA sola vez (no en cada render).
+  useHotkeys({
+    onViewModeChange: setViewMode,
+    onCenterLesion: handleCenterLesion,
+    onToggleLesion: handleToggleLesion,
+    onToggleLungs: handleToggleLungs,
+    onToggleRadiological: handleToggleRadiological,
+    onPrevStudy: handlePrevStudy,
+    onNextStudy: handleNextStudy,
+    onToggleHelp: () => setHelpOpen(true),
+    onCloseHelp: () => setHelpOpen(false),
+    helpOpen,
+    canCenterLesion,
+    lesionVisible: !!layerSettings.lesion?.visible,
+    lungsVisible:
+      !!layerSettings.lung_right?.visible || !!layerSettings.lung_left?.visible,
+    studyIndex,
+    studyCount,
+    onAnnounce,
+  })
 
   return (
     <div
@@ -173,6 +295,7 @@ export default function App() {
         onRetryMetrics={handleRetryMetrics}
         onCenterLesion={handleCenterLesion}
         canCenterLesion={canCenterLesion}
+        onToggleHelp={() => setHelpOpen(true)}
       />
 
       <main
@@ -191,6 +314,7 @@ export default function App() {
             viewMode={viewMode}
             layerSettings={layerSettings}
             ctWindow={ctWindow}
+            radiological={radiological}
             onReadyChange={handleViewerReadyChange}
           />
         </ErrorBoundary>
@@ -198,6 +322,24 @@ export default function App() {
         {/* Selector de vista inferior. */}
         <ViewerToolbar viewMode={viewMode} onViewModeChange={setViewMode} />
       </main>
+
+      {/* Región aria-live para feedback breve de los atajos. */}
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          position: 'absolute',
+          left: -10000,
+          width: 1,
+          height: 1,
+          overflow: 'hidden',
+        }}
+      >
+        {announce}
+      </div>
+
+      {/* Modal de ayuda (? y botón «Atajos» de la sidebar). */}
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
   )
 }

@@ -487,6 +487,10 @@ export function useNiivue() {
       // para que «Centrar en lesión» se vea también en 3D.
       show3Dcrosshair: true,
       backColor: [0.039, 0.047, 0.078, 1], // #0a0c14 (fondo del visor)
+      // Se desactiva el hotkey `V` de NiiVue para que el cambio de vista sea
+      // siempre gestionado por React (useHotkeys) y nunca discrepe del
+      // selector de vista. `C` (plano de corte) se deja como está (F7).
+      viewModeHotKey: '',
     })
     nvRef.current = newNv
 
@@ -687,6 +691,21 @@ export function useNiivue() {
     }
   }, [destroyInstance])
 
+  /** Cambia la convención radiológica/neurológica y redibuja. */
+  const setRadiologicalConvention = useCallback((v: boolean) => {
+    const nv = nvRef.current
+    if (nv) {
+      nv.setRadiologicalConvention(v)
+      nv.drawScene()
+    }
+  }, [])
+
+  /** Lee la convención actual de NiiVue. */
+  const getRadiologicalConvention = useCallback((): boolean => {
+    const nv = nvRef.current
+    return nv ? nv.getRadiologicalConvention() : false
+  }, [])
+
   return {
     canvasRef,
     nv: nvRef.current,
@@ -697,6 +716,8 @@ export function useNiivue() {
     loadStudy,
     applyVisualSettings,
     setViewMode,
+    setRadiologicalConvention,
+    getRadiologicalConvention,
     centerOnLesion,
     clearVolumes,
     destroyInstance,

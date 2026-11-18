@@ -163,7 +163,7 @@ Errores: 404 (id/layer inexistente o inválido), 422 (validación), 500 sin filt
 - Overlays: pulmones con opacidad baja (~0.25) y lesión alta (~0.8) para que la lesión se distinga **también en el 3D**.
 - CT base con ventana pulmonar (−1350 a 150 HU).
 
-**Atajos** (no se activan con foco en inputs): `1` Multi · `2` Axial · `3` Coronal · `4` Sagital · `5` 3D · `G` centrar en lesión · `E` mostrar/ocultar lesión · `P` mostrar/ocultar pulmones · `R` convención radiológica · `[` `]` estudio anterior/siguiente · `?` ayuda.
+**Atajos** (no se activan con foco en inputs): `1` Multi · `2` Axial · `3` Coronal · `4` Sagital · `5` 3D · `G` centrar en lesión · `E` mostrar/ocultar lesión · `P` mostrar/ocultar pulmones · `R` convención radiológica · `[` `]` / `,` `.` estudio anterior/siguiente · `?` ayuda.
 
 **Tokens de diseño** (`styles/tokens.css`): fondo `#0a0c14`, superficies `#11141f` / `#161a28`, borde `#232842`, acento violeta `#6c5ce7`, texto `#e6e8f2`, atenuado `#8b90a8`; colores de capa: pulmón derecho `#4169e1`, izquierdo `#3cb371`, lesión `#ff2a2a`. Tipografía sans moderna (Inter o IBM Plex Sans). Estados: cargando (skeleton), error (mensaje + reintentar), vacío (instrucciones para copiar datos a `Data/`).
 

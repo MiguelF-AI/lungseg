@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useStudies } from '../hooks/useStudies'
+import { moveStudyIndex } from '../nav'
 
 export interface StudyPickerProps {
   className?: string
@@ -16,46 +17,94 @@ export interface StudyPickerProps {
  *  - vacío: instrucciones para copiar archivos a Data/
  *
  * El id se abrevia a los 8 primeros caracteres. Los botones ◀ ▶ navegan
- * por la lista real y notifican el cambio mediante onSelect.
+ * por la lista (filtrada si hay búsqueda) y notifican el cambio mediante
+ * onSelect. Añade un buscador por id (subcadena, sin distinguir
+ * mayúsculas) accesible con teclado: flechas eligen, Enter selecciona,
+ * Esc limpia. Tecleando en el buscador no se dispara ningún atajo de
+ * teclado global (useHotkeys ignora los campos de texto).
  */
 export function StudyPicker({
   className = '',
   onSelect,
 }: StudyPickerProps) {
   const { studies, loading, error, refetch } = useStudies()
+  const [filter, setFilter] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
 
-  // Si la lista cambia (refetch), ajustar el índice seleccionado.
-  useEffect(() => {
-    if (studies.length === 0) {
-      setSelectedIndex(0)
-    } else if (selectedIndex >= studies.length) {
-      setSelectedIndex(studies.length - 1)
-    }
-  }, [studies.length, selectedIndex])
+  // Lista filtrada por id (subcadena, sin distinguir mayúsculas).
+  const filtered = useMemo(
+    () =>
+      studies.filter((s) =>
+        s.id.toLowerCase().includes(filter.toLowerCase()),
+      ),
+    [studies, filter],
+  )
 
-  const selectedStudy = studies[selectedIndex] ?? null
+  // Ajustar el índice seleccionado cuando la lista filtrada cambia.
+  useEffect(() => {
+    if (filtered.length === 0) {
+      setSelectedIndex(0)
+    } else if (selectedIndex >= filtered.length) {
+      setSelectedIndex(filtered.length - 1)
+    }
+  }, [filtered.length, selectedIndex])
+
+  const selectedStudy = filtered[selectedIndex] ?? null
   const idAbbrev = selectedStudy ? selectedStudy.id.slice(0, 8) : '—'
 
-  const handlePrev = () => {
-    if (selectedIndex > 0) {
-      const next = selectedIndex - 1
-      setSelectedIndex(next)
-      onSelect?.(studies[next].id)
-    }
-  }
+  const handleFilterChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setFilter(e.target.value)
+      setSelectedIndex(0)
+    },
+    [],
+  )
 
-  const handleNext = () => {
-    if (selectedIndex < studies.length - 1) {
-      const next = selectedIndex + 1
-      setSelectedIndex(next)
-      onSelect?.(studies[next].id)
-    }
-  }
+  const handleFilterKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Escape') {
+        setFilter('')
+        setSelectedIndex(0)
+        return
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        if (filtered.length === 0) return
+        setSelectedIndex((prev) => (prev + 1) % filtered.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        if (filtered.length === 0) return
+        setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length)
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        const s = selectedStudy
+        if (s) onSelect?.(s.id)
+      }
+    },
+    [filtered.length, selectedStudy, onSelect],
+  )
 
-  const handleRetry = () => {
+  const handlePrev = useCallback(() => {
+    if (filtered.length === 0) return
+    const next = moveStudyIndex(filtered, selectedIndex, -1)
+    setSelectedIndex(next)
+    onSelect?.(filtered[next].id)
+  }, [filtered, selectedIndex, onSelect])
+
+  const handleNext = useCallback(() => {
+    if (filtered.length === 0) return
+    const next = moveStudyIndex(filtered, selectedIndex, 1)
+    setSelectedIndex(next)
+    onSelect?.(filtered[next].id)
+  }, [filtered, selectedIndex, onSelect])
+
+  const handleRetry = useCallback(() => {
     void refetch()
-  }
+  }, [refetch])
 
   // Esqueleto de carga (sencillo, sin librerías extra).
   if (loading) {
@@ -248,7 +297,7 @@ export function StudyPicker({
     )
   }
 
-  // Estado exitoso: selector real.
+  // Estado exitoso: selector real con buscador por id.
   return (
     <section
       className={className}
@@ -268,6 +317,32 @@ export function StudyPicker({
       >
         Estudio
       </div>
+
+      {/* Buscador por id (subcadena, sin distinguir mayúsculas). */}
+      <div style={{ marginBottom: 8 }}>
+        <input
+          type="search"
+          className="ls-focusable"
+          value={filter}
+          onChange={handleFilterChange}
+          onKeyDown={handleFilterKeyDown}
+          autoComplete="off"
+          aria-label="Buscar estudio por id"
+          placeholder="Buscar estudio…"
+          style={{
+            width: '100%',
+            padding: '6px 10px',
+            fontSize: 13,
+            border: '1px solid var(--ls-border)',
+            borderRadius: 'var(--ls-radius)',
+            background: 'var(--ls-surface-elev)',
+            color: 'var(--ls-text)',
+            outline: 'none',
+            boxSizing: 'border-box',
+          }}
+        />
+      </div>
+
       <div
         style={{
           display: 'flex',
@@ -289,7 +364,7 @@ export function StudyPicker({
         >
           <button
             type="button"
-            disabled={selectedIndex === 0}
+            disabled={filtered.length === 0 || selectedIndex === 0}
             onClick={handlePrev}
             aria-label="Estudio anterior"
             style={{
@@ -301,10 +376,13 @@ export function StudyPicker({
               border: 'none',
               background: 'transparent',
               color:
-                selectedIndex === 0
+                filtered.length === 0 || selectedIndex === 0
                   ? 'var(--ls-disabled-text)'
                   : 'var(--ls-text)',
-              cursor: selectedIndex === 0 ? 'not-allowed' : 'pointer',
+              cursor:
+                filtered.length === 0 || selectedIndex === 0
+                  ? 'not-allowed'
+                  : 'pointer',
               borderRadius: 'var(--ls-radius)',
               outline: 'none',
             }}
@@ -325,7 +403,10 @@ export function StudyPicker({
           </span>
           <button
             type="button"
-            disabled={selectedIndex === studies.length - 1}
+            disabled={
+              filtered.length === 0 ||
+              selectedIndex === filtered.length - 1
+            }
             onClick={handleNext}
             aria-label="Estudio siguiente"
             style={{
@@ -337,11 +418,15 @@ export function StudyPicker({
               border: 'none',
               background: 'transparent',
               color:
-                selectedIndex === studies.length - 1
+                filtered.length === 0 ||
+                selectedIndex === filtered.length - 1
                   ? 'var(--ls-disabled-text)'
                   : 'var(--ls-text)',
               cursor:
-                selectedIndex === studies.length - 1 ? 'not-allowed' : 'pointer',
+                filtered.length === 0 ||
+                selectedIndex === filtered.length - 1
+                  ? 'not-allowed'
+                  : 'pointer',
               borderRadius: 'var(--ls-radius)',
               outline: 'none',
             }}
@@ -350,7 +435,7 @@ export function StudyPicker({
           </button>
         </div>
         <span style={{ color: 'var(--ls-text-muted)', fontSize: 13 }}>
-          {selectedIndex + 1} / {studies.length}
+          {filtered.length === 0 ? '—' : selectedIndex + 1} / {filtered.length}
         </span>
       </div>
     </section>

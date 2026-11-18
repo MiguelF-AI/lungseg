@@ -21,6 +21,8 @@ export function Sidebar({
   onRetryMetrics,
   onCenterLesion,
   canCenterLesion,
+  radiological,
+  onToggleHelp,
 }: {
   className?: string
   onStudySelect: (id: string) => void
@@ -38,6 +40,10 @@ export function Sidebar({
   onRetryMetrics: () => void
   onCenterLesion: () => void
   canCenterLesion: boolean
+  /** Convención radiológica actual (para el indicador visual). */
+  radiological?: boolean
+  /** Abre el modal de ayuda de atajos. */
+  onToggleHelp: () => void
 }) {
   const centerHint =
     study === null
@@ -176,6 +182,52 @@ export function Sidebar({
             {centerHint}
           </p>
         )}
+
+        {/* Indicador de convención y botón de atajos. */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 8,
+            padding: '6px 10px',
+            background: 'var(--ls-surface-elev)',
+            border: '1px solid var(--ls-border)',
+            borderRadius: 'var(--ls-radius)',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: radiological ? 'var(--ls-accent)' : 'var(--ls-text-muted)',
+            }}
+          >
+            {radiological ? 'Radiológica' : 'Neurológica'}
+          </span>
+          <button
+            type="button"
+            className="ls-focusable"
+            aria-label="Atajos de teclado"
+            onClick={onToggleHelp}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 28,
+              height: 28,
+              border: '1px solid var(--ls-border)',
+              borderRadius: 'var(--ls-radius)',
+              background: 'transparent',
+              color: 'var(--ls-text)',
+              cursor: 'pointer',
+              outline: 'none',
+            }}
+          >
+            ⌨
+          </button>
+        </div>
+
         <button
           type="button"
           disabled

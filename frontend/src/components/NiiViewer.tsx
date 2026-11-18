@@ -17,6 +17,8 @@ export interface NiiViewerProps {
   viewMode: ViewMode
   layerSettings: Record<string, LayerVisualSettings>
   ctWindow: CtWindow
+  /** Convención radiológica (true = radiológica, false = neurológica). */
+  radiological?: boolean
   /** Avisa de si el visor tiene volúmenes pintados (para habilitar acciones). */
   onReadyChange?: (ready: boolean) => void
 }
@@ -25,6 +27,10 @@ export interface NiiViewerProps {
 export interface NiiViewerHandle {
   /** Lleva el crosshair a una posición en mm de mundo. `false` si no puede. */
   centerOnLesion: (mm: [number, number, number]) => boolean
+  /** Cambia la convención radiológica/neurológica y redibuja. */
+  setRadiologicalConvention: (v: boolean) => void
+  /** Lee la convención actual de NiiVue. */
+  getRadiologicalConvention: () => boolean
 }
 
 /**
@@ -56,7 +62,7 @@ export interface NiiViewerHandle {
  *  - WebGL2 no disponible: aviso con instrucciones en lugar de pantalla negra.
  */
 export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function NiiViewer(
-  { study, viewMode, layerSettings, ctWindow, onReadyChange },
+  { study, viewMode, layerSettings, ctWindow, radiological, onReadyChange },
   ref,
 ) {
   const retryCountRef = useRef(0)
@@ -66,14 +72,25 @@ export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function Ni
     error,
     webgl2,
     location,
+    nv,
     loadStudy,
     applyVisualSettings,
     setViewMode,
+    setRadiologicalConvention,
+    getRadiologicalConvention,
     centerOnLesion,
   } = useNiivue()
 
   // El padre solo necesita la función, no la instancia de NiiVue.
-  useImperativeHandle(ref, () => ({ centerOnLesion }), [centerOnLesion])
+  useImperativeHandle(
+    ref,
+    () => ({
+      centerOnLesion,
+      setRadiologicalConvention,
+      getRadiologicalConvention,
+    }),
+    [centerOnLesion, setRadiologicalConvention, getRadiologicalConvention],
+  )
 
   // Informar al padre de si hay volúmenes listos (sistema externo → padre).
   useEffect(() => {
@@ -135,6 +152,14 @@ export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function Ni
       setViewMode(viewMode)
     }
   }, [ready, viewMode, setViewMode])
+
+  // Aplicar la convención radiológica cuando cambie (sin recargar volúmenes).
+  useEffect(() => {
+    if (nv && ready) {
+      setRadiologicalConvention(radiological ?? false)
+      nv.drawScene()
+    }
+  }, [nv, ready, radiological, setRadiologicalConvention])
 
   if (!webgl2) {
     return (
