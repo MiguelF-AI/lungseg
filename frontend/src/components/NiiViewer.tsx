@@ -96,7 +96,11 @@ export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function Ni
     setRadiologicalConvention,
     getRadiologicalConvention,
     centerOnLesion,
-    apply3d,
+    applyCamera,
+    applyClipPlane,
+    applyQuality,
+    consumeIgnoreCameraApply,
+    consumeIgnoreClipApply,
     on3dChange: use3dChange,
   } = useNiivue()
 
@@ -180,12 +184,45 @@ export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function Ni
     }
   }, [nv, ready, radiological, setRadiologicalConvention])
 
-  // Aplicar preferencias 3D al visor (efecto hacia NiiVue, sin recargar
-  // volúmenes; regla 11).
+  // Cámara 3D: solo setRenderAzimuthElevation (barato). Se dispara cuando
+  // cambia azimuth/elevation desde la UI (preset o slider custom). Cuando el
+  // usuario arrastra con el ratón, on3dChange marca consumeIgnoreCameraApply
+  // y el efecto salta la aplicación (NiiVue ya aplicó el cambio con el arrastre).
   useEffect(() => {
     if (!ready) return
-    apply3d(view3d)
-  }, [view3d, viewMode, ready, apply3d])
+    if (consumeIgnoreCameraApply()) return
+    applyCamera(view3d.azimuth, view3d.elevation)
+  }, [view3d.azimuth, view3d.elevation, ready, applyCamera, consumeIgnoreCameraApply])
+
+  // Plano de corte al visor (regla 11: sin recargar volúmenes).
+  useEffect(() => {
+    if (!ready) return
+    if (consumeIgnoreClipApply()) return
+    applyClipPlane(view3d)
+  }, [
+    view3d.clipPlaneEnabled,
+    view3d.clipPlaneDepth,
+    view3d.clipPlaneAzi,
+    view3d.clipPlaneElev,
+    ready,
+    applyClipPlane,
+    consumeIgnoreClipApply,
+  ])
+
+  // Calidad de render 3D (iluminación, opacidad por gradiente, mezcla,
+  // cubo): operaciones costosas (async), solo cuando cambian los sliders de
+  // calidad, nunca en cada frame de arrastre de cámara (regla 11).
+  useEffect(() => {
+    if (!ready) return
+    applyQuality(view3d)
+  }, [
+    view3d.illumination,
+    view3d.gradientOpacity,
+    view3d.renderOverlayBlend,
+    view3d.orientCube,
+    ready,
+    applyQuality,
+  ])
 
   // Sincronizar cambios hechos con el ratón en NiiVue (arrastrar cámara,
   // mover plano de corte) con el estado de App. Sistema externo → estado;

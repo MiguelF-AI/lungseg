@@ -217,6 +217,12 @@ export interface View3DPrefs {
  * leyendo `scene.renderAzimuth` / `scene.renderElevation`, en convención
  * neurológica y radiológica (tecla R de F5). Documentar la tabla final en
  * PLAN §7 y en este comentario.
+ *
+ * Observación de verificación real (usuario, 2026-11-23): en vista Anterior
+ * el pulmón azul (pulmón derecho del paciente) aparece a la derecha de la
+ * pantalla. Eso es coherente con convención RADIOLÓGICA (o con un azimut de
+ * Anterior distinto a [0, 0]); por tanto la tabla de partida puede no ser
+ * la correcta para la convención neurológica por defecto de la UI.
  */
 export const CAMERA_PRESETS: Record<Exclude<View3DCameraPreset, 'Personalizado'>, [number, number]> = {
   Anterior: [0, 0],
@@ -281,6 +287,12 @@ export function useNiivue() {
   // obsoletas (estudio cambiado mientras se descargaba) se descartan sin tocar el
   // estado del estudio vigente.
   const loadStudyTokenRef = useRef(0)
+  // Ref anti-bucle: cuando el usuario arrastra la cámara o el plano de corte en
+  // NiiVue, el listener actualiza el estado React pero no debe volver a aplicar
+  // el cambio a NiiVue (ya lo hizo el usuario con el ratón). Se marca true antes
+  // de setView3d y el efecto correspondiente lo consume y lo resetea.
+  const ignoreNextCameraApplyRef = useRef(false)
+  const ignoreNextClipApplyRef = useRef(false)
   // Cola de cargas: `loadVolumes` no es reentrante (muta volúmenes y
   // texturas GL), así que las cargas se encadenan en serie.
   const loadPromiseRef = useRef<Promise<void>>(Promise.resolve())
@@ -788,45 +800,53 @@ export function useNiivue() {
   }, [])
 
   /**
-   * Aplica las preferencias 3D a la instancia viva de NiiVue (regla 11: sin
-   * recargar volúmenes).
-   *
-   * - Cámara: `setRenderAzimuthElevation(azimuth, elevation)`.
-   * - Cubo de orientación: `opts.isOrientCube`.
-   * - Plano de corte: `setClipPlane([depth, azimuth, elevation])`. Si el
-   *   recorte está desactivado se usa una profundidad > 2.0 (lo desactiva
-   *   según el .d.ts).
-   * - Calidad: `setVolumeRenderIllumination(illumination)` y
-   *   `setGradientOpacity(gradientOpacity, renderSilhouette)`.
-   * - Mezcla CT + overlays: `opts.renderOverlayBlend`.
-   * - «Solo segmentaciones en 3D»: opacidad de la CT a 0 solo en modo 3D
-   *   puro (RENDER); se guarda la opacidad previa para restaurarla al salir.
+   * Aplica solo la cámara 3D a la instancia viva de NiiVue (regla 11: sin
+   * recargar volúmenes). Es barato (`setRenderAzimuthElevation` + `drawScene`)
+   * y se usa para los cambios de cámara hechos desde la UI (presets, slider
+   * custom). Cuando el usuario arrastra con el ratón, NiiVue ya aplicó el
+   * cambio y el listener marca `ignoreNextCameraApplyRef` para no repetirlo.
    */
-  const apply3d = useCallback(
+  const applyCamera = useCallback(
+    (azimuth: number, elevation: number): void => {
+      const nv = nvRef.current
+      if (!nv) return
+      nv.setRenderAzimuthElevation(azimuth, elevation)
+      nv.drawScene()
+    },
+    [],
+  )
+
+  /**
+   * Aplica solo el plano de corte a la instancia viva de NiiVue (regla 11).
+   */
+  const applyClipPlane = useCallback(
     (prefs: View3DPrefs): void => {
       const nv = nvRef.current
       if (!nv) return
-
-      // Cámara 3D.
-      nv.setRenderAzimuthElevation(prefs.azimuth, prefs.elevation)
-
-      // Cubo de orientación.
-      nv.opts.isOrientCube = prefs.orientCube
-
-      // Plano de corte.
       if (prefs.clipPlaneEnabled) {
         nv.setClipPlane([prefs.clipPlaneDepth, prefs.clipPlaneAzi, prefs.clipPlaneElev])
       } else {
         nv.setClipPlane([CLIP_PLANE_OFF_DEPTH, 0, 0])
       }
+      nv.drawScene()
+    },
+    [],
+  )
 
-      // Calidad de render (iluminación y opacidad por gradiente son async).
+  /**
+   * Aplica la calidad de render 3D (iluminación, opacidad por gradiente,
+   * mezcla CT+overlays, cubo de orientación). `setVolumeRenderIllumination` y
+   * `setGradientOpacity` son async y costosos: solo se llaman cuando cambian
+   * los sliders de calidad, nunca en cada frame de arrastre de cámara.
+   */
+  const applyQuality = useCallback(
+    (prefs: View3DPrefs): void => {
+      const nv = nvRef.current
+      if (!nv) return
+      nv.opts.isOrientCube = prefs.orientCube
       void nv.setVolumeRenderIllumination(prefs.illumination)
       void nv.setGradientOpacity(prefs.gradientOpacity, 0)
-
-      // Mezcla de overlays en 3D.
       nv.opts.renderOverlayBlend = prefs.renderOverlayBlend
-
       nv.drawScene()
     },
     [],
@@ -834,8 +854,11 @@ export function useNiivue() {
 
   /**
    * Registra listeners para sincronizar los cambios hechos con el ratón
-   * (arrastrar en 3D, mover plano de corte) con el estado React. Devuelve una
-   * función de desuscripción.
+   * (arrastrar en 3D, mover plano de corte) con el estado React. Cuando el
+   * usuario arrastra, NiiVue ya aplicó el cambio: el listener marca el ref
+   * correspondiente para que el efecto de React no lo re-aplique, y solo
+   * actualiza el estado para que la UI refleje los valores actuales.
+   * Devuelve una función de desuscripción.
    */
   const on3dChange = useCallback(
     (cb: (state: { azimuth: number; elevation: number; clipPlane: number[] | null }) => void) => {
@@ -844,10 +867,12 @@ export function useNiivue() {
 
       const onAzimuthElevation = (event: CustomEvent) => {
         const d = event.detail as { azimuth: number; elevation: number }
+        ignoreNextCameraApplyRef.current = true
         cb({ azimuth: d.azimuth, elevation: d.elevation, clipPlane: null })
       }
       const onClipPlane = (event: CustomEvent) => {
         const d = event.detail as { clipPlane: number[] }
+        ignoreNextClipApplyRef.current = true
         cb({ azimuth: 0, elevation: 0, clipPlane: d.clipPlane })
       }
 
@@ -861,6 +886,20 @@ export function useNiivue() {
     },
     [],
   )
+
+  /** Consume (lee y resetea) el ref anti-bucle de cámara. */
+  const consumeIgnoreCameraApply = useCallback((): boolean => {
+    const v = ignoreNextCameraApplyRef.current
+    ignoreNextCameraApplyRef.current = false
+    return v
+  }, [])
+
+  /** Consume (lee y resetea) el ref anti-bucle de plano de corte. */
+  const consumeIgnoreClipApply = useCallback((): boolean => {
+    const v = ignoreNextClipApplyRef.current
+    ignoreNextClipApplyRef.current = false
+    return v
+  }, [])
 
   return {
     canvasRef,
@@ -877,7 +916,11 @@ export function useNiivue() {
     centerOnLesion,
     clearVolumes,
     destroyInstance,
-    apply3d,
+    applyCamera,
+    applyClipPlane,
+    applyQuality,
+    consumeIgnoreCameraApply,
+    consumeIgnoreClipApply,
     read3dState,
     on3dChange,
   }
