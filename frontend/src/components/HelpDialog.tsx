@@ -15,6 +15,7 @@ const SHORTCUTS: { key: string; alias: string; label: string }[] = [
   { key: 'E', alias: '', label: 'Mostrar/ocultar lesión' },
   { key: 'P', alias: '', label: 'Mostrar/ocultar pulmones' },
   { key: 'R', alias: '', label: 'Convención radiológica' },
+  { key: 'C', alias: '', label: 'Plano de corte (activar/desactivar)' },
   { key: '[', alias: ',', label: 'Estudio anterior' },
   { key: ']', alias: '.', label: 'Estudio siguiente' },
   { key: '?', alias: '', label: 'Ayuda' },

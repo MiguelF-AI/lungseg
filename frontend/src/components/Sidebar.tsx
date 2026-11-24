@@ -1,8 +1,19 @@
+import { useEffect, useState } from 'react'
+
 import LayerPanel from './LayerPanel'
 import MetricsCard from './MetricsCard'
 import StudyPicker from './StudyPicker'
 import type { Metrics, StudyDetail } from '../api/types'
 import type { CtWindow, LayerVisualSettings } from '../layers'
+import {
+  type View3DCameraPreset,
+  type View3DPrefs,
+  type ViewMode,
+} from '../hooks/useNiivue'
+
+/** Rango de profundidad del plano de clip (según el .d.ts de NiiVue). */
+const CLIP_PLANE_MIN = 0
+const CLIP_PLANE_MAX = 1.73
 
 export function Sidebar({
   className = '',
@@ -23,6 +34,30 @@ export function Sidebar({
   canCenterLesion,
   radiological,
   onToggleHelp,
+  /** Modo de vista actual (para mostrar la sección 3D solo en 3D/Multi). */
+  viewMode,
+  /** Preferencias de vista 3D. */
+  view3d,
+  /** Preset de cámara. */
+  onCameraPreset,
+  /** Alternar plano de corte. */
+  onClipPlaneToggle,
+  /** Cambiar profundidad del plano de corte. */
+  onClipPlaneDepthChange,
+  /** Alinear plano de corte con la cámara. */
+  onClipPlaneAlign,
+  /** Alternar cubo de orientación. */
+  onOrientCubeToggle,
+  /** Cambiar iluminación 3D. */
+  onIlluminationChange,
+  /** Cambiar opacidad por gradiente 3D. */
+  onGradientOpacityChange,
+  /** Cambiar mezcla de overlays 3D. */
+  onRenderOverlayBlendChange,
+  /** Alternar «solo segmentaciones en 3D». */
+  onMasksOnly3dToggle,
+  /** Restablecer vista 3D. */
+  onReset3d,
 }: {
   className?: string
   onStudySelect: (id: string) => void
@@ -42,6 +77,20 @@ export function Sidebar({
   canCenterLesion: boolean
   /** Convención radiológica actual (para el indicador visual). */
   radiological?: boolean
+  /** Modo de vista actual. */
+  viewMode: ViewMode
+  /** Preferencias de vista 3D. */
+  view3d: View3DPrefs
+  onCameraPreset: (preset: Exclude<View3DCameraPreset, 'Personalizado'>) => void
+  onClipPlaneToggle: () => void
+  onClipPlaneDepthChange: (depth: number) => void
+  onClipPlaneAlign: () => void
+  onOrientCubeToggle: () => void
+  onIlluminationChange: (value: number) => void
+  onGradientOpacityChange: (value: number) => void
+  onRenderOverlayBlendChange: (value: number) => void
+  onMasksOnly3dToggle: () => void
+  onReset3d: () => void
   /** Abre el modal de ayuda de atajos. */
   onToggleHelp: () => void
 }) {
@@ -55,6 +104,32 @@ export function Sidebar({
           : metrics.lesion_components === 0
             ? 'Este estudio no tiene lesión segmentada.'
             : 'El visor aún no está listo.'
+
+  // Contador de FPS solo para desarrollo ((import.meta as any).env.DEV). Se activa con
+  // window.__lungsegFps (botón de la sección 3D o consola).
+  const [fps, setFps] = useState(0)
+  useEffect(() => {
+    if ((import.meta as any).env.DEV && (window as any).__lungsegFps) {
+      let frameCount = 0
+      let lastTime = performance.now()
+      const tick = () => {
+        frameCount++
+        const now = performance.now()
+        if (now - lastTime >= 1000) {
+          setFps(Math.round((frameCount * 1000) / (now - lastTime)))
+          frameCount = 0
+          lastTime = now
+        }
+        if ((window as any).__lungsegFps) {
+          requestAnimationFrame(tick)
+        }
+      }
+      requestAnimationFrame(tick)
+    }
+    return () => {
+      // El bucle se detiene al cambiar window.__lungsegFps a false.
+    }
+  }, [(import.meta as any).env.DEV, (window as any).__lungsegFps])
 
   return (
     <aside
@@ -248,6 +323,456 @@ export function Sidebar({
           Descargar todo
         </button>
       </div>
+
+      {/* Vista 3D (solo en modo 3D o Multi). */} {/*
+      */ (viewMode === '3D' || viewMode === 'Multi') && (
+        <div
+          style={{
+            padding: '12px 16px',
+            borderTop: '1px solid var(--ls-border)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--ls-text-muted)',
+              marginBottom: 8,
+            }}
+          >
+            Vista 3D
+          </div>
+
+          {/* Presets de cámara. */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              flexWrap: 'wrap',
+              marginBottom: 10,
+            }}
+          >
+            {(['Anterior', 'Posterior', 'Izquierda', 'Derecha', 'Superior'] as const).map(
+              (preset) => {
+                const active = view3d.cameraPreset === preset
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    className="ls-focusable"
+                    aria-label={`Vista ${preset}`}
+                    aria-pressed={active}
+                    onClick={() => onCameraPreset(preset)}
+                    style={{
+                      padding: '6px 8px',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      borderRadius: 'var(--ls-radius)',
+                      border: active
+                        ? '1px solid var(--ls-accent)'
+                        : '1px solid var(--ls-border)',
+                      background: active ? 'var(--ls-accent)' : 'var(--ls-surface-elev)',
+                      color: active ? '#ffffff' : 'var(--ls-text)',
+                      cursor: 'pointer',
+                      outline: 'none',
+                    }}
+                  >
+                    {preset}
+                  </button>
+                )
+              },
+            )}
+          </div>
+
+          {/* Cubo de orientación. */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 10,
+            }}
+          >
+            <button
+              type="button"
+              className="ls-focusable"
+              aria-label={view3d.orientCube ? 'Ocultar cubo de orientación' : 'Mostrar cubo de orientación'}
+              aria-pressed={view3d.orientCube}
+              onClick={onOrientCubeToggle}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 28,
+                height: 28,
+                border: '1px solid var(--ls-border)',
+                borderRadius: 'var(--ls-radius)',
+                background: view3d.orientCube ? 'var(--ls-accent)' : 'transparent',
+                color: view3d.orientCube ? '#ffffff' : 'var(--ls-text)',
+                cursor: 'pointer',
+                outline: 'none',
+              }}
+            >
+              ◈
+            </button>
+            <span style={{ fontSize: 12.5, color: 'var(--ls-text)' }}>
+              Cubo de orientación
+            </span>
+          </div>
+
+          {/* Plano de corte. */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              marginBottom: 10,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                className="ls-focusable"
+                aria-label={
+                  view3d.clipPlaneEnabled
+                    ? 'Desactivar plano de corte'
+                    : 'Activar plano de corte'
+                }
+                aria-pressed={view3d.clipPlaneEnabled}
+                onClick={onClipPlaneToggle}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 28,
+                  height: 28,
+                  border: '1px solid var(--ls-border)',
+                  borderRadius: 'var(--ls-radius)',
+                  background: view3d.clipPlaneEnabled ? 'var(--ls-accent)' : 'transparent',
+                  color: view3d.clipPlaneEnabled ? '#ffffff' : 'var(--ls-text)',
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                ▭
+              </button>
+              <span style={{ fontSize: 12.5, color: 'var(--ls-text)' }}>
+                Plano de corte
+              </span>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <label
+                style={{ fontSize: 11.5, color: 'var(--ls-text-muted)', width: 70 }}
+                htmlFor="ls-clip-plane-depth"
+              >
+                Profundidad
+              </label>
+              <input
+                id="ls-clip-plane-depth"
+                type="range"
+                min={CLIP_PLANE_MIN}
+                max={CLIP_PLANE_MAX}
+                step="0.01"
+                value={view3d.clipPlaneDepth}
+                onChange={(e) =>
+                  onClipPlaneDepthChange(parseFloat(e.target.value))
+                }
+                disabled={!view3d.clipPlaneEnabled}
+                aria-label="Profundidad del plano de corte"
+                style={{
+                  flex: 1,
+                  height: 6,
+                  accentColor: 'var(--ls-accent)',
+                  cursor: view3d.clipPlaneEnabled ? 'pointer' : 'not-allowed',
+                  opacity: view3d.clipPlaneEnabled ? 1 : 0.5,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--ls-text-muted)',
+                  minWidth: 40,
+                }}
+              >
+                {view3d.clipPlaneDepth.toFixed(2)}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="ls-focusable"
+              aria-label="Alinear plano de corte con la cámara"
+              onClick={onClipPlaneAlign}
+              disabled={!view3d.clipPlaneEnabled}
+              style={{
+                width: '100%',
+                padding: '6px',
+                fontSize: 12,
+                borderRadius: 'var(--ls-radius)',
+                border: '1px solid var(--ls-border)',
+                background: view3d.clipPlaneEnabled ? 'var(--ls-surface-elev)' : 'var(--ls-disabled-bg)',
+                color: view3d.clipPlaneEnabled ? 'var(--ls-text)' : 'var(--ls-disabled-text)',
+                cursor: view3d.clipPlaneEnabled ? 'pointer' : 'not-allowed',
+                outline: 'none',
+              }}
+            >
+              Alinear con la cámara
+            </button>
+          </div>
+
+          {/* Calidad de render. */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              marginBottom: 10,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              <label
+                style={{ fontSize: 11.5, color: 'var(--ls-text-muted)' }}
+              >
+                Iluminación 3D
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={view3d.illumination}
+                onChange={(e) => onIlluminationChange(parseFloat(e.target.value))}
+                aria-label="Iluminación 3D"
+                style={{
+                  width: '100%',
+                  height: 6,
+                  accentColor: 'var(--ls-accent)',
+                  cursor: 'pointer',
+                }}
+              />
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: 10.5,
+                  color: 'var(--ls-text-muted)',
+                }}
+              >
+                <span>0</span>
+                <span>{view3d.illumination.toFixed(2)}</span>
+                <span>1</span>
+              </div>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              <label
+                style={{ fontSize: 11.5, color: 'var(--ls-text-muted)' }}
+              >
+                Opacidad por gradiente
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={view3d.gradientOpacity}
+                onChange={(e) => onGradientOpacityChange(parseFloat(e.target.value))}
+                aria-label="Opacidad por gradiente 3D"
+                style={{
+                  width: '100%',
+                  height: 6,
+                  accentColor: 'var(--ls-accent)',
+                  cursor: 'pointer',
+                }}
+              />
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: 10.5,
+                  color: 'var(--ls-text-muted)',
+                }}
+              >
+                <span>0</span>
+                <span>{view3d.gradientOpacity.toFixed(2)}</span>
+                <span>1</span>
+              </div>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              <label
+                style={{ fontSize: 11.5, color: 'var(--ls-text-muted)' }}
+              >
+                Mezcla CT + overlays
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={view3d.renderOverlayBlend}
+                onChange={(e) => onRenderOverlayBlendChange(parseFloat(e.target.value))}
+                aria-label="Mezcla CT + overlays 3D"
+                style={{
+                  width: '100%',
+                  height: 6,
+                  accentColor: 'var(--ls-accent)',
+                  cursor: 'pointer',
+                }}
+              />
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: 10.5,
+                  color: 'var(--ls-text-muted)',
+                }}
+              >
+                <span>0</span>
+                <span>{view3d.renderOverlayBlend.toFixed(2)}</span>
+                <span>1</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Solo segmentaciones en 3D. */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 10,
+            }}
+          >
+            <button
+              type="button"
+              className="ls-focusable"
+              aria-label={
+                view3d.masksOnly3d
+                  ? 'Desactivar solo segmentaciones en 3D'
+                  : 'Activar solo segmentaciones en 3D'
+              }
+              aria-pressed={view3d.masksOnly3d}
+              onClick={onMasksOnly3dToggle}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 28,
+                height: 28,
+                border: '1px solid var(--ls-border)',
+                borderRadius: 'var(--ls-radius)',
+                background: view3d.masksOnly3d ? 'var(--ls-accent)' : 'transparent',
+                color: view3d.masksOnly3d ? '#ffffff' : 'var(--ls-text)',
+                cursor: 'pointer',
+                outline: 'none',
+              }}
+            >
+              ▭
+            </button>
+            <span style={{ fontSize: 12.5, color: 'var(--ls-text)' }}>
+              Solo segmentaciones en 3D
+            </span>
+          </div>
+
+          {/* Restablecer 3D. */}
+          <button
+            type="button"
+            className="ls-focusable"
+            aria-label="Restablecer vista 3D"
+            onClick={onReset3d}
+            style={{
+              width: '100%',
+              padding: '8px',
+              fontSize: 12,
+              fontWeight: 500,
+              borderRadius: 'var(--ls-radius)',
+              border: '1px solid var(--ls-accent)',
+              background: 'transparent',
+              color: 'var(--ls-accent)',
+              cursor: 'pointer',
+              outline: 'none',
+            }}
+          >
+            Restablecer 3D
+          </button>
+        </div>
+      )}
+
+      {/* FPS (solo desarrollo). */}
+      {(import.meta as any).env.DEV && (
+        <div
+          style={{
+            padding: '12px 16px',
+            borderTop: '1px solid var(--ls-border)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--ls-text-muted)',
+              marginBottom: 8,
+            }}
+          >
+            FPS (dev)
+          </div>
+          <button
+            type="button"
+            className="ls-focusable"
+            aria-label="Activar contador de FPS (solo desarrollo)"
+            onClick={() => {
+              ;(window as any).__lungsegFps =
+                !(window as any).__lungsegFps
+            }}
+            style={{
+              width: '100%',
+              padding: '8px',
+              fontSize: 12,
+              borderRadius: 'var(--ls-radius)',
+              border: '1px solid var(--ls-accent)',
+              background: 'transparent',
+              color: 'var(--ls-accent)',
+              cursor: 'pointer',
+              outline: 'none',
+            }}
+          >
+            {(window as any).__lungsegFps ? 'Desactivar' : 'Activar'} FPS
+          </button>
+          <div id="ls-fps-counter" style={{ fontSize: 11, color: 'var(--ls-text-muted)', marginTop: 4 }}>
+            {fps} fps
+          </div>
+        </div>
+      )}
 
       {/* Pie */}
       <div style={{ padding: '14px 16px', borderTop: '1px solid var(--ls-border)', marginTop: 'auto' }}>

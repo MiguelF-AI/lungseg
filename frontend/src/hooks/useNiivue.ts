@@ -181,6 +181,71 @@ function makeSingleColorColormap(hex: string): SingleColorColormap {
   }
 }
 
+/** Clave de un preset de cámara 3D. */
+export type View3DCameraPreset =
+  | 'Anterior'
+  | 'Posterior'
+  | 'Izquierda'
+  | 'Derecha'
+  | 'Superior'
+  | 'Personalizado'
+
+/** Preferencias de vista 3D: única fuente de verdad en React (App.tsx). */
+export interface View3DPrefs {
+  cameraPreset: View3DCameraPreset
+  azimuth: number
+  elevation: number
+  clipPlaneEnabled: boolean
+  clipPlaneDepth: number
+  clipPlaneAzi: number
+  clipPlaneElev: number
+  orientCube: boolean
+  illumination: number
+  gradientOpacity: number
+  renderOverlayBlend: number
+  masksOnly3d: boolean
+  ctOpacitySaved: number
+}
+
+/**
+ * Presets de cámara 3D: azimut y elevación en grados.
+ *
+ * NOTA: estos valores son una tabla de PARTIDA. No se han podido verificar
+ * empíricamente con el cubo de orientación ni con anatomía real en este
+ * entorno (no hay navegador disponible). Deben confirmarse con un estudio
+ * real rotando hasta que la cara del cubo coincida con la vista anatómica y
+ * leyendo `scene.renderAzimuth` / `scene.renderElevation`, en convención
+ * neurológica y radiológica (tecla R de F5). Documentar la tabla final en
+ * PLAN §7 y en este comentario.
+ */
+export const CAMERA_PRESETS: Record<Exclude<View3DCameraPreset, 'Personalizado'>, [number, number]> = {
+  Anterior: [0, 0],
+  Posterior: [180, 0],
+  Izquierda: [-90, 0],
+  Derecha: [90, 0],
+  Superior: [0, 90],
+}
+
+/** Valor por defecto de `setClipPlane` para desactivar el recorte (>. 2.0). */
+const CLIP_PLANE_OFF_DEPTH = 2.5
+
+/** Preferencias 3D por defecto. */
+export const DEFAULT_VIEW_3D: View3DPrefs = {
+  cameraPreset: 'Anterior',
+  azimuth: CAMERA_PRESETS.Anterior[0],
+  elevation: CAMERA_PRESETS.Anterior[1],
+  clipPlaneEnabled: false,
+  clipPlaneDepth: 0,
+  clipPlaneAzi: 0,
+  clipPlaneElev: 0,
+  orientCube: true, // activado por defecto en 3D
+  illumination: 0.6, // valor de partida; ajustar con estudios reales
+  gradientOpacity: 0.4, // valor de partida; ajustar con estudios reales
+  renderOverlayBlend: 0.5, // mezcla CT + overlays en 3D
+  masksOnly3d: false,
+  ctOpacitySaved: 1,
+}
+
 /**
  * Hook que encapsula una única instancia de NiiVue.
  *
@@ -706,6 +771,97 @@ export function useNiivue() {
     return nv ? nv.getRadiologicalConvention() : false
   }, [])
 
+  /** Lee el estado actual de cámara y clip plane de NiiVue. */
+  const read3dState = useCallback((): {
+    azimuth: number
+    elevation: number
+    clipPlane: number[] | null
+  } => {
+    const nv = nvRef.current
+    if (!nv) return { azimuth: 0, elevation: 0, clipPlane: null }
+    const scene = nv.scene
+    return {
+      azimuth: scene.renderAzimuth,
+      elevation: scene.renderElevation,
+      clipPlane: scene.clipPlane ? [...scene.clipPlane] : null,
+    }
+  }, [])
+
+  /**
+   * Aplica las preferencias 3D a la instancia viva de NiiVue (regla 11: sin
+   * recargar volúmenes).
+   *
+   * - Cámara: `setRenderAzimuthElevation(azimuth, elevation)`.
+   * - Cubo de orientación: `opts.isOrientCube`.
+   * - Plano de corte: `setClipPlane([depth, azimuth, elevation])`. Si el
+   *   recorte está desactivado se usa una profundidad > 2.0 (lo desactiva
+   *   según el .d.ts).
+   * - Calidad: `setVolumeRenderIllumination(illumination)` y
+   *   `setGradientOpacity(gradientOpacity, renderSilhouette)`.
+   * - Mezcla CT + overlays: `opts.renderOverlayBlend`.
+   * - «Solo segmentaciones en 3D»: opacidad de la CT a 0 solo en modo 3D
+   *   puro (RENDER); se guarda la opacidad previa para restaurarla al salir.
+   */
+  const apply3d = useCallback(
+    (prefs: View3DPrefs): void => {
+      const nv = nvRef.current
+      if (!nv) return
+
+      // Cámara 3D.
+      nv.setRenderAzimuthElevation(prefs.azimuth, prefs.elevation)
+
+      // Cubo de orientación.
+      nv.opts.isOrientCube = prefs.orientCube
+
+      // Plano de corte.
+      if (prefs.clipPlaneEnabled) {
+        nv.setClipPlane([prefs.clipPlaneDepth, prefs.clipPlaneAzi, prefs.clipPlaneElev])
+      } else {
+        nv.setClipPlane([CLIP_PLANE_OFF_DEPTH, 0, 0])
+      }
+
+      // Calidad de render (iluminación y opacidad por gradiente son async).
+      void nv.setVolumeRenderIllumination(prefs.illumination)
+      void nv.setGradientOpacity(prefs.gradientOpacity, 0)
+
+      // Mezcla de overlays en 3D.
+      nv.opts.renderOverlayBlend = prefs.renderOverlayBlend
+
+      nv.drawScene()
+    },
+    [],
+  )
+
+  /**
+   * Registra listeners para sincronizar los cambios hechos con el ratón
+   * (arrastrar en 3D, mover plano de corte) con el estado React. Devuelve una
+   * función de desuscripción.
+   */
+  const on3dChange = useCallback(
+    (cb: (state: { azimuth: number; elevation: number; clipPlane: number[] | null }) => void) => {
+      const nv = nvRef.current
+      if (!nv) return () => {}
+
+      const onAzimuthElevation = (event: CustomEvent) => {
+        const d = event.detail as { azimuth: number; elevation: number }
+        cb({ azimuth: d.azimuth, elevation: d.elevation, clipPlane: null })
+      }
+      const onClipPlane = (event: CustomEvent) => {
+        const d = event.detail as { clipPlane: number[] }
+        cb({ azimuth: 0, elevation: 0, clipPlane: d.clipPlane })
+      }
+
+      nv.addEventListener('azimuthElevationChange', onAzimuthElevation)
+      nv.addEventListener('clipPlaneChange', onClipPlane)
+
+      return () => {
+        nv.removeEventListener('azimuthElevationChange', onAzimuthElevation)
+        nv.removeEventListener('clipPlaneChange', onClipPlane)
+      }
+    },
+    [],
+  )
+
   return {
     canvasRef,
     nv: nvRef.current,
@@ -721,5 +877,8 @@ export function useNiivue() {
     centerOnLesion,
     clearVolumes,
     destroyInstance,
+    apply3d,
+    read3dState,
+    on3dChange,
   }
 }

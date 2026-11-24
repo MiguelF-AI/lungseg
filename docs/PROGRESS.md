@@ -20,7 +20,7 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 | 1 | F6 | Métricas y «Centrar en lesión» | F3, B3 | ✅ |
 | 1 | F5 | Selector de estudios y atajos | F3 | ✅ |
 | 1 | N1 | Actualización de @niivue/niivue 0.47.0 → 0.69.0 | F5 | ✅ |
-| 1 | F7 | Pulido 3D | F3, F4 | ⬜ |
+| 1 | F7 | Pulido 3D | F3, F4 | ✅ |
 | 1 | F8 | Exportar (ZIP + captura) | F4, B2 | ⬜ |
 | 2 | U1 | Subida de estudios (opcional) | B2, F4 | ⬜ |
 | 2 | D1 | Dibujo y corrección (opcional) | U1 | ⬜ |
@@ -153,3 +153,14 @@ Formato de cada entrada (la más reciente arriba):
 - Cómo se verificó: `uv run ruff check backend` ✅, `uv run ruff format --check backend` ✅, `uv run pyright` ✅ (0 errores), `uv run pytest` ✅ (20 tests pasados). Verificación real contra `Data/` (estudio `33cf78a82e5d1f3a98931b3fe5d31a40`): 1ª y 2ª petición por `curl`/httpx para ct, lung_right, lung_left, lesion; segunda petición con If-None-Match → 304 sin cuerpo; pesos: ct 149 MB (1era 7.2 s), lung_right 459 KB (1.0 s), lung_left 432 KB (0.9 s), lesion 313 KB (3.2 s); HEAD con ETag/Last-Modified/Cache-Control OK.
 - Desviaciones del plan y por qué: §5 acepta ahora fuentes `.nii` (sin gz) además de `.nii.gz` porque los archivos reales de `Data/` usan `.nii`; se documenta en PLAN §5 y en HANDOFF §4 (mismo cambio que exige la regla 01; ningún contrato §6 ni schemas.py/types.ts cambió). Nivel de gzip 4 elegido por compromiso rapidez/tamaño en CTs de cientos de MB con 16 GB RAM.
 - Pendiente / siguiente paso: ticket B3 (métricas).
+
+### CP-013 · 2026-11-23 · F7
+- Qué cambió: frontend (rama feat/F7-3d-polish).
+  - Controles 3D en la sidebar (visible en modo 3D o Multi): presets de cámara (Anterior/Posterior/Izquierda/Derecha/Superior), cubo de orientación (activado por defecto en 3D), plano de corte (interruptor + slider de profundidad + botón «Alinear con la cámara»), calidad (iluminación setVolumeRenderIllumination, opacidad por gradiente setGradientOpacity, mezcla CT+overlays renderOverlayBlend), «solo segmentaciones en 3D», botón «Restablecer 3D», contador FPS solo desarrollo (import.meta.env.DEV, activable desde la interfaz o la consola vía window.__lungsegFps).
+  - Tecla `C` registrada en `useHotkeys` (fase captura, misma lógica de F5) para activar/desactivar el recorte; `clipPlaneHotKey` y `cycleClipPlaneHotKey` de NiiVue desactivadas para que NiiVue no lo ciclé por su cuenta.
+  - Una única fuente de verdad en React para las preferencias 3D (`App.tsx`); cámara y plano de corte sincronizados con cambios de ratón vía eventos `azimuthElevationChange`/`clipPlaneChange` de NiiVue (sistema externo → estado, regla 14); al cambiar de estudio se conservan las preferencias y la cámara vuelve a «Anterior»; sin recargar volúmenes (regla 11); una instancia y un canvas (regla 16).
+  - Puerta de decisión: no se generaron mallas en este ticket (render volumétrico con opacidades suficiente; propuesta de mallas con costos dejada para aprobación si se necesita).
+  - `HelpDialog` actualizado con la tecla `C`; PLAN §7 actualizado con controles 3D y tabla de presets.
+- Cómo se verificó: `uv run ruff check` ✅, `uv run ruff format --check` ✅, `uv run pyright` (0 errores), `uv run pytest` (33 tests), `npm run build` (0 errores de tipo; advertencia de chunk >500 kB de NiiVue preexistente). **Verificación visual (a-g) NO realizada:** no dispuse de navegador para abrir la UI. La tabla de presets (azimut/elevación) queda por verificar empíricamente con el cubo de orientación en ambas convenciones (valores de partida marcados «POR VERIFICAR» en el código). Se reporta como pendiente al humano.
+- Desviaciones del plan y por qué: tabla de presets con valores de partida no verificados (no hay navegador disponible); «solo segmentaciones en 3D» implementado como opacidad CT = 0 solo en modo 3D puro (compromiso: NiiVue no permite visibilidad de volumen por tipo de corte); sin cambios en backend ni contratos §5/§6 (regla 01); sin cambiar versión de NiiVue (0.69.0, regla 08); sin mallas (puerta de decisión); sin exportar/capturas (F8).
+- Pendiente / siguiente paso: verificación visual con navegador real (valores de presets, plano de corte, lesión en 3D, arrastre sincronizado, 10 cambios de estudio con 1 canvas, atajos F5 + F4, FPS con GPU RX 6600); luego F8 y Q1.

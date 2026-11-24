@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import type { StudyDetail } from '../api/types'
-import { useNiivue, type ViewMode } from '../hooks/useNiivue'
+import { useNiivue, type ViewMode, type View3DPrefs } from '../hooks/useNiivue'
 import type { CtWindow, LayerVisualSettings } from '../layers'
 
 /** Color de la insignia de capa en la lectura de posición (por clave de capa). */
@@ -19,6 +19,14 @@ export interface NiiViewerProps {
   ctWindow: CtWindow
   /** Convención radiológica (true = radiológica, false = neurológica). */
   radiological?: boolean
+  /** Preferencias de vista 3D (única fuente de verdad en App). */
+  view3d: View3DPrefs
+  /** Sincroniza cambios hechos con el ratón en NiiVue con el estado de App. */
+  on3dChange?: (state: {
+    azimuth: number
+    elevation: number
+    clipPlane: number[] | null
+  }) => void
   /** Avisa de si el visor tiene volúmenes pintados (para habilitar acciones). */
   onReadyChange?: (ready: boolean) => void
 }
@@ -62,7 +70,16 @@ export interface NiiViewerHandle {
  *  - WebGL2 no disponible: aviso con instrucciones en lugar de pantalla negra.
  */
 export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function NiiViewer(
-  { study, viewMode, layerSettings, ctWindow, radiological, onReadyChange },
+  {
+    study,
+    viewMode,
+    layerSettings,
+    ctWindow,
+    radiological,
+    view3d,
+    on3dChange: on3dChangeProp,
+    onReadyChange,
+  },
   ref,
 ) {
   const retryCountRef = useRef(0)
@@ -79,6 +96,8 @@ export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function Ni
     setRadiologicalConvention,
     getRadiologicalConvention,
     centerOnLesion,
+    apply3d,
+    on3dChange: use3dChange,
   } = useNiivue()
 
   // El padre solo necesita la función, no la instancia de NiiVue.
@@ -160,6 +179,24 @@ export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function Ni
       nv.drawScene()
     }
   }, [nv, ready, radiological, setRadiologicalConvention])
+
+  // Aplicar preferencias 3D al visor (efecto hacia NiiVue, sin recargar
+  // volúmenes; regla 11).
+  useEffect(() => {
+    if (!ready) return
+    apply3d(view3d)
+  }, [view3d, viewMode, ready, apply3d])
+
+  // Sincronizar cambios hechos con el ratón en NiiVue (arrastrar cámara,
+  // mover plano de corte) con el estado de App. Sistema externo → estado;
+  // no es props → estado (regla 14).
+  useEffect(() => {
+    if (!nv || !on3dChangeProp) return
+    const unsubscribe = use3dChange((state) => {
+      on3dChangeProp(state)
+    })
+    return unsubscribe
+  }, [nv, use3dChange, on3dChangeProp])
 
   if (!webgl2) {
     return (

@@ -10,6 +10,7 @@ export type HotkeyAction =
   | { kind: 'toggleRadiological'; announce?: string }
   | { kind: 'prevStudy'; announce?: string }
   | { kind: 'nextStudy'; announce?: string }
+  | { kind: 'toggleClipPlane'; announce?: string }
   | { kind: 'toggleHelp' }
   | { kind: 'closeHelp' }
 
@@ -81,6 +82,9 @@ export function resolveHotkey(
   // R: convención radiológica
   if (key === 'r') return { kind: 'toggleRadiological' }
 
+  // C: plano de corte (activar/desactivar)
+  if (key === 'c') return { kind: 'toggleClipPlane' }
+
   // Estudio anterior/siguiente: [ ] , .
   if (key === '[' || key === ',') return { kind: 'prevStudy' }
   if (key === ']' || key === '.') return { kind: 'nextStudy' }
@@ -94,6 +98,7 @@ export interface UseHotkeysOptions {
   onToggleLesion: () => void
   onToggleLungs: () => void
   onToggleRadiological: () => void
+  onToggleClipPlane: () => void
   onPrevStudy: () => void
   onNextStudy: () => void
   onToggleHelp: () => void
@@ -101,6 +106,7 @@ export interface UseHotkeysOptions {
   /** Último estado para decidir si una acción puede ejecutarse. */
   helpOpen: boolean
   canCenterLesion: boolean
+  clipPlaneEnabled: boolean
   lesionVisible: boolean
   lungsVisible: boolean
   studyIndex: number
@@ -167,6 +173,12 @@ export function useHotkeys(opts: UseHotkeysOptions): void {
           break
         case 'toggleRadiological':
           o.onToggleRadiological()
+          break
+        case 'toggleClipPlane':
+          o.onToggleClipPlane()
+          o.onAnnounce(
+            o.clipPlaneEnabled ? 'Plano de corte activado' : 'Plano de corte desactivado',
+          )
           break
         case 'prevStudy':
           o.onPrevStudy()

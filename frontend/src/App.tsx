@@ -10,7 +10,13 @@ import ErrorBoundary from './components/ErrorBoundary'
 import ViewerToolbar from './components/ViewerToolbar'
 import HelpDialog from './components/HelpDialog'
 import { moveStudyIndex } from './nav'
-import type { ViewMode } from './hooks/useNiivue'
+import {
+  CAMERA_PRESETS,
+  DEFAULT_VIEW_3D,
+  type ViewMode,
+  type View3DPrefs,
+  type View3DCameraPreset,
+} from './hooks/useNiivue'
 
 /** Orden de los modos de vista (coincide con ViewerToolbar). */
 const VIEW_MODES: ViewMode[] = ['Multi', 'Axial', 'Coronal', 'Sagital', '3D']
@@ -75,6 +81,12 @@ export default function App() {
     Record<string, Partial<LayerVisualSettings>>
   >({})
   const [ctWindow, setCtWindow] = useState<CtWindow>(DEFAULT_CT_WINDOW)
+
+  // Preferencias de vista 3D: única fuente de verdad en React. Se conservan
+  // al cambiar de estudio (como layerOverrides); la cámara vuelve a
+  // «Anterior» aplicando el preset sobre el nuevo estudio sin recargar
+  // volúmenes (regla 11).
+  const [view3d, setView3d] = useState<View3DPrefs>(DEFAULT_VIEW_3D)
 
   const { studies } = useStudies()
   const {
@@ -147,6 +159,71 @@ export default function App() {
 
   const handleCtWindowChange = useCallback((next: CtWindow) => {
     setCtWindow(next)
+  }, [])
+
+  // --- Preferencias 3D -----------------------------------------------------
+
+  /** Aplica un preset de cámara y sale del modo «Personalizado». */
+  const handleCameraPreset = useCallback((preset: Exclude<View3DCameraPreset, 'Personalizado'>) => {
+    const [azimuth, elevation] = CAMERA_PRESETS[preset]
+    setView3d((prev) => ({
+      ...prev,
+      cameraPreset: preset,
+      azimuth,
+      elevation,
+    }))
+  }, [])
+
+  /** Marca la cámara como «Personalizado» cuando el usuario arrastra con el ratón. */
+  const handleCameraCustom = useCallback((azimuth: number, elevation: number) => {
+    setView3d((prev) => ({
+      ...prev,
+      cameraPreset: 'Personalizado',
+      azimuth,
+      elevation,
+    }))
+  }, [])
+
+  const handleClipPlaneToggle = useCallback(() => {
+    setView3d((prev) => ({ ...prev, clipPlaneEnabled: !prev.clipPlaneEnabled }))
+  }, [])
+
+  const handleClipPlaneDepthChange = useCallback((depth: number) => {
+    setView3d((prev) => ({ ...prev, clipPlaneEnabled: true, clipPlaneDepth: depth }))
+  }, [])
+
+  const handleClipPlaneAlign = useCallback(() => {
+    setView3d((prev) => ({
+      ...prev,
+      clipPlaneEnabled: true,
+      clipPlaneAzi: prev.azimuth,
+      clipPlaneElev: prev.elevation,
+    }))
+  }, [])
+
+  const handleOrientCubeToggle = useCallback(() => {
+    setView3d((prev) => ({ ...prev, orientCube: !prev.orientCube }))
+  }, [])
+
+  const handleIlluminationChange = useCallback((value: number) => {
+    setView3d((prev) => ({ ...prev, illumination: value }))
+  }, [])
+
+  const handleGradientOpacityChange = useCallback((value: number) => {
+    setView3d((prev) => ({ ...prev, gradientOpacity: value }))
+  }, [])
+
+  const handleRenderOverlayBlendChange = useCallback((value: number) => {
+    setView3d((prev) => ({ ...prev, renderOverlayBlend: value }))
+  }, [])
+
+  const handleMasksOnly3dToggle = useCallback(() => {
+    setView3d((prev) => ({ ...prev, masksOnly3d: !prev.masksOnly3d }))
+  }, [])
+
+  /** Restablece los valores por defecto de la vista 3D (cámara = Anterior). */
+  const handleReset3d = useCallback(() => {
+    setView3d(DEFAULT_VIEW_3D)
   }, [])
 
   const handleRetryStudy = useCallback(() => {
@@ -245,6 +322,40 @@ export default function App() {
     void refetchMetrics(selectedStudyId)
   }, [selectedStudyId, refetchMetrics])
 
+  // Al cambiar de estudio, la cámara vuelve a «Anterior». Las demás
+  // preferencias (corte, cubo, iluminación, …) se conservan (como F4).
+  useEffect(() => {
+    if (!selectedStudyId) return
+    const [azimuth, elevation] = CAMERA_PRESETS.Anterior
+    setView3d((prev) => ({
+      ...prev,
+      cameraPreset: 'Anterior',
+      azimuth,
+      elevation,
+    }))
+  }, [selectedStudyId])
+
+  // Sincroniza cambios hechos con el ratón en NiiVue (arrastrar cámara,
+  // mover plano de corte) con el estado React. Sistema externo → estado;
+  // no es props → estado (regla 14).
+  const handle3dChange = useCallback(
+    (state: { azimuth: number; elevation: number; clipPlane: number[] | null }) => {
+      const cp = state.clipPlane
+      if (cp) {
+        setView3d((prev) => ({
+          ...prev,
+          clipPlaneEnabled: true,
+          clipPlaneDepth: cp[0],
+          clipPlaneAzi: cp[1],
+          clipPlaneElev: cp[2],
+        }))
+      } else {
+        handleCameraCustom(state.azimuth, state.elevation)
+      }
+    },
+    [handleCameraCustom],
+  )
+
   // Estado del modal de ayuda.
   const [helpOpen, setHelpOpen] = useState(false)
 
@@ -255,12 +366,14 @@ export default function App() {
     onToggleLesion: handleToggleLesion,
     onToggleLungs: handleToggleLungs,
     onToggleRadiological: handleToggleRadiological,
+    onToggleClipPlane: handleClipPlaneToggle,
     onPrevStudy: handlePrevStudy,
     onNextStudy: handleNextStudy,
     onToggleHelp: () => setHelpOpen(true),
     onCloseHelp: () => setHelpOpen(false),
     helpOpen,
     canCenterLesion,
+    clipPlaneEnabled: view3d.clipPlaneEnabled,
     lesionVisible: !!layerSettings.lesion?.visible,
     lungsVisible:
       !!layerSettings.lung_right?.visible || !!layerSettings.lung_left?.visible,
@@ -296,6 +409,18 @@ export default function App() {
         onCenterLesion={handleCenterLesion}
         canCenterLesion={canCenterLesion}
         onToggleHelp={() => setHelpOpen(true)}
+        viewMode={viewMode}
+        view3d={view3d}
+        onCameraPreset={handleCameraPreset}
+        onClipPlaneToggle={handleClipPlaneToggle}
+        onClipPlaneDepthChange={handleClipPlaneDepthChange}
+        onClipPlaneAlign={handleClipPlaneAlign}
+        onOrientCubeToggle={handleOrientCubeToggle}
+        onIlluminationChange={handleIlluminationChange}
+        onGradientOpacityChange={handleGradientOpacityChange}
+        onRenderOverlayBlendChange={handleRenderOverlayBlendChange}
+        onMasksOnly3dToggle={handleMasksOnly3dToggle}
+        onReset3d={handleReset3d}
       />
 
       <main
@@ -315,6 +440,8 @@ export default function App() {
             layerSettings={layerSettings}
             ctWindow={ctWindow}
             radiological={radiological}
+            view3d={view3d}
+            on3dChange={handle3dChange}
             onReadyChange={handleViewerReadyChange}
           />
         </ErrorBoundary>

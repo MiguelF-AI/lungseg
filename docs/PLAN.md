@@ -163,7 +163,16 @@ Errores: 404 (id/layer inexistente o inválido), 422 (validación), 500 sin filt
 - Overlays: pulmones con opacidad baja (~0.25) y lesión alta (~0.8) para que la lesión se distinga **también en el 3D**.
 - CT base con ventana pulmonar (−1350 a 150 HU).
 
-**Atajos** (no se activan con foco en inputs): `1` Multi · `2` Axial · `3` Coronal · `4` Sagital · `5` 3D · `G` centrar en lesión · `E` mostrar/ocultar lesión · `P` mostrar/ocultar pulmones · `R` convención radiológica · `[` `]` / `,` `.` estudio anterior/siguiente · `?` ayuda.
+**Atajos** (no se activan con foco en inputs): `1` Multi · `2` Axial · `3` Coronal · `4` Sagital · `5` 3D · `G` centrar en lesión · `E` mostrar/ocultar lesión · `P` mostrar/ocultar pulmones · `R` convención radiológica · `C` plano de corte (activar/desactivar) · `[` `]` / `,` `.` estudio anterior/siguiente · `?` ayuda.
+
+**Controles 3D (F7)** — sección de la sidebar, visible en modo 3D o Multi:
+- **Presets de cámara:** Anterior, Posterior, Izquierda, Derecha y Superior. Cada preset aplica un par (azimut, elevación) en grados; la tabla exacta se documenta en este apartado tras verificación empírica con el cubo de orientación y anatomía real (ambas convenciones). Mientras no se verifique, los valores son una tabla de partida marcada en el código.
+- **Cubo de orientación:** interruptor, activado por defecto en 3D (`isOrientCube`).
+- **Plano de corte:** interruptor + deslizador de profundidad (0 a ~1.73) + botón «Alinear con la cámara» (usa azimut/elevación actuales). Desactivado → profundidad > 2.0 (recorte desactivado). La tecla `C` de NiiVue se desactiva (`clipPlaneHotKey: ''`); nuestra `C` (misma lógica de F5) activa/desactiva el recorte.
+- **Calidad:** iluminación (`setVolumeRenderIllumination`), opacidad por gradiente (`setGradientOpacity`) y mezcla CT+overlays (`renderOverlayBlend`), con valores por defecto elegidos probando con estudios reales, más botón «Restablecer 3D».
+- **«Solo segmentaciones en 3D»:** la CT se oculta (opacidad 0) solo en el panel 3D puro; en Multi gobierna todo lo del panel de capas (F4). NiiVue no permite ocultar un volumen solo en un tipo de corte, así que es un compromiso documentado.
+- **Cámara y plano de corte sincronizados:** los cambios hechos arrastrando con el ratón se leen de los eventos `azimuthElevationChange` y `clipPlaneChange` de NiiVue y se reflejan en los controles (única fuente de verdad en React; sin props→estado).
+- **Cambio de estudio:** las preferencias 3D se conservan (como F4); la cámara vuelve a «Anterior». Sin recargar volúmenes (regla 11). Una instancia y un canvas (regla 16).
 
 **Tokens de diseño** (`styles/tokens.css`): fondo `#0a0c14`, superficies `#11141f` / `#161a28`, borde `#232842`, acento violeta `#6c5ce7`, texto `#e6e8f2`, atenuado `#8b90a8`; colores de capa: pulmón derecho `#4169e1`, izquierdo `#3cb371`, lesión `#ff2a2a`. Tipografía sans moderna (Inter o IBM Plex Sans). Estados: cargando (skeleton), error (mensaje + reintentar), vacío (instrucciones para copiar datos a `Data/`).
 
