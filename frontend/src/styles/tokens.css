@@ -22,6 +22,7 @@
   --ls-focus-ring: #6c5ce7;
   --ls-disabled-bg: #1b2030;
   --ls-disabled-text: #4b5266;
+  --ls-error: #ff6b6b;
   /* Dimensiones */
   --ls-sidebar-width: 320px;
   --ls-radius: 8px;

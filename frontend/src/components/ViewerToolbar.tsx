@@ -6,10 +6,15 @@ export function ViewerToolbar({
   className = '',
   viewMode,
   onViewModeChange,
+  viewerReady,
+  onCaptureView,
 }: {
   className?: string
   viewMode: ViewMode
   onViewModeChange: (mode: ViewMode) => void
+  /** Solo se puede capturar cuando el visor tiene volúmenes pintados. */
+  viewerReady: boolean
+  onCaptureView: () => void
 }) {
   const handleSelect = (next: ViewMode) => {
     onViewModeChange(next)
@@ -33,6 +38,7 @@ export function ViewerToolbar({
         <button
           key={m}
           type="button"
+          className="ls-focusable"
           aria-pressed={viewMode === m}
           onClick={() => handleSelect(m)}
           style={{
@@ -51,6 +57,42 @@ export function ViewerToolbar({
           {m}
         </button>
       ))}
+
+      <span
+        aria-hidden="true"
+        style={{
+          width: 1,
+          height: 22,
+          margin: '0 4px',
+          background: 'var(--ls-border)',
+        }}
+      />
+
+      <button
+        type="button"
+        className="ls-focusable"
+        disabled={!viewerReady}
+        aria-label="Capturar vista actual como PNG"
+        title={
+          viewerReady
+            ? 'Guarda la vista actual como PNG'
+            : 'Carga un estudio para capturar la vista'
+        }
+        onClick={onCaptureView}
+        style={{
+          padding: '6px 12px',
+          fontSize: 13,
+          fontWeight: 500,
+          borderRadius: 'var(--ls-radius)',
+          border: '1px solid var(--ls-accent)',
+          background: viewerReady ? 'transparent' : 'var(--ls-disabled-bg)',
+          color: viewerReady ? 'var(--ls-accent)' : 'var(--ls-disabled-text)',
+          cursor: viewerReady ? 'pointer' : 'not-allowed',
+          outline: 'none',
+        }}
+      >
+        📷 Capturar vista
+      </button>
     </div>
   )
 }

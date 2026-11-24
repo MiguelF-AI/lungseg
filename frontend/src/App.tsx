@@ -9,6 +9,7 @@ import Sidebar from './components/Sidebar'
 import ErrorBoundary from './components/ErrorBoundary'
 import ViewerToolbar from './components/ViewerToolbar'
 import HelpDialog from './components/HelpDialog'
+import { downloadExport } from './api/client'
 import { moveStudyIndex } from './nav'
 import {
   CAMERA_PRESETS,
@@ -20,6 +21,22 @@ import {
 
 /** Orden de los modos de vista (coincide con ViewerToolbar). */
 const VIEW_MODES: ViewMode[] = ['Multi', 'Axial', 'Coronal', 'Sagital', '3D']
+
+type ExportPhase = 'idle' | 'preparing' | 'success' | 'error'
+type ExportStatus = {
+  studyId: string
+  phase: ExportPhase
+  message: string | null
+}
+
+/** Nombre de la captura PNG: id abreviado, modo de vista y marca de tiempo local. */
+function captureFilename(id: string, mode: ViewMode, date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const stamp =
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}` +
+    `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  return `lungseg_${id.slice(0, 8)}_${mode}_${stamp}.png`
+}
 import {
   DEFAULT_CT_WINDOW,
   defaultLayerSettings,
@@ -117,6 +134,13 @@ export default function App() {
     () => userSelectedId ?? studies[0]?.id ?? null,
     [userSelectedId, studies],
   )
+
+  // Estado de la descarga ZIP (F8). Se guarda junto al id del estudio para que
+  // un cambio rápido de estudio no muestre el éxito/error del anterior (regla
+  // 14: se deriva en el render, sin efectos que copien props a estado).
+  const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null)
+  const exportForStudy = exportStatus?.studyId === selectedStudyId ? exportStatus : null
+  const captureInFlightRef = useRef(false)
 
   // Métricas visibles: solo las del estudio seleccionado. Mientras el hook
   // tiene el estudio anterior (o ninguna respuesta), la tarjeta está en carga
@@ -237,6 +261,39 @@ export default function App() {
       void refetchMetrics(selectedStudyId)
     }
   }, [selectedStudyId, refetchMetrics])
+
+  /** Descarga el ZIP de máscaras y mantiene estados claros en la sidebar (F8). */
+  const handleDownloadExport = useCallback(async () => {
+    if (!selectedStudyId) return
+    setExportStatus({ studyId: selectedStudyId, phase: 'preparing', message: null })
+    try {
+      await downloadExport(selectedStudyId)
+      setExportStatus({ studyId: selectedStudyId, phase: 'success', message: null })
+      onAnnounce(`Descarga lista: ${selectedStudyId}_masks.zip`)
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Error desconocido al preparar el ZIP.'
+      setExportStatus({ studyId: selectedStudyId, phase: 'error', message })
+      onAnnounce('No se pudo generar el ZIP')
+    }
+  }, [selectedStudyId, onAnnounce])
+
+  /** Captura la vista vigente en PNG sin alterar la escena de NiiVue (F8). */
+  const handleCaptureView = useCallback(() => {
+    if (!selectedStudyId || !viewerReady || captureInFlightRef.current) return
+    const filename = captureFilename(selectedStudyId, viewMode, new Date())
+    captureInFlightRef.current = true
+    void (async () => {
+      try {
+        const saved = (await viewerRef.current?.captureView(filename)) ?? false
+        onAnnounce(saved ? 'Captura guardada' : 'No se pudo guardar la captura')
+      } catch {
+        onAnnounce('No se pudo guardar la captura')
+      } finally {
+        captureInFlightRef.current = false
+      }
+    })()
+  }, [selectedStudyId, viewerReady, viewMode, onAnnounce])
 
   // «Centrar en lesión» usa `lesion_focus_mm` (punto garantizado dentro de la
   // lesión), no el centroide global, que puede caer fuera. El visor mueve el
@@ -421,6 +478,9 @@ export default function App() {
         onRenderOverlayBlendChange={handleRenderOverlayBlendChange}
         onMasksOnly3dToggle={handleMasksOnly3dToggle}
         onReset3d={handleReset3d}
+        onDownloadExport={handleDownloadExport}
+        exportPhase={exportForStudy?.phase ?? 'idle'}
+        exportMessage={exportForStudy?.message ?? null}
       />
 
       <main
@@ -446,8 +506,13 @@ export default function App() {
           />
         </ErrorBoundary>
 
-        {/* Selector de vista inferior. */}
-        <ViewerToolbar viewMode={viewMode} onViewModeChange={setViewMode} />
+        {/* Selector de vista inferior y captura PNG (F8). */}
+        <ViewerToolbar
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          viewerReady={viewerReady}
+          onCaptureView={handleCaptureView}
+        />
       </main>
 
       {/* Región aria-live para feedback breve de los atajos. */}

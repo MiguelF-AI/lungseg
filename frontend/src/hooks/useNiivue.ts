@@ -783,6 +783,55 @@ export function useNiivue() {
     return nv ? nv.getRadiologicalConvention() : false
   }, [])
 
+  /**
+   * Guarda la vista actual como PNG (F8) sin tocar la escena (regla 11).
+   *
+   * No se usa `saveScene()` de NiiVue 0.69.0: su implementación no espera
+   * `canvas.toBlob`, falla callada si el blob es null y no libera la URL del
+   * objeto. Aquí `drawScene()` y `toBlob()` se llaman en el MISMO ciclo de
+   * ejecución (el executor de la Promise es síncrono), de modo que se captura
+   * el buffer recién dibujado. `drawScene()` solo repinta el estado vigente:
+   * no cambia volúmenes, cámara, crosshair, plano de corte ni foco.
+   */
+  const captureView = useCallback((filename: string): Promise<boolean> => {
+    const nv = nvRef.current
+    if (!nv || !readyRef.current) return Promise.resolve(false)
+
+    const canvas = nv.canvas ?? canvasRef.current
+    if (!canvas || canvas.width === 0 || canvas.height === 0) {
+      return Promise.resolve(false)
+    }
+
+    return new Promise<boolean>((resolve) => {
+      try {
+        nv.drawScene()
+        canvas.toBlob((blob) => {
+          if (!blob || blob.size === 0) {
+            resolve(false)
+            return
+          }
+          const url = URL.createObjectURL(blob)
+          try {
+            const a = document.createElement('a')
+            a.href = url
+            a.download = filename
+            a.style.display = 'none'
+            document.body.appendChild(a)
+            // Sin focus(): el canvas de NiiVue conserva el foco.
+            a.click()
+            a.remove()
+          } finally {
+            setTimeout(() => URL.revokeObjectURL(url), 0)
+          }
+          resolve(true)
+        }, 'image/png')
+      } catch (err) {
+        console.error('[niivue] no se pudo capturar la vista:', err)
+        resolve(false)
+      }
+    })
+  }, [])
+
   /** Lee el estado actual de cámara y clip plane de NiiVue. */
   const read3dState = useCallback((): {
     azimuth: number
@@ -913,6 +962,7 @@ export function useNiivue() {
     setViewMode,
     setRadiologicalConvention,
     getRadiologicalConvention,
+    captureView,
     centerOnLesion,
     clearVolumes,
     destroyInstance,

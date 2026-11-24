@@ -58,6 +58,12 @@ export function Sidebar({
   onMasksOnly3dToggle,
   /** Restablecer vista 3D. */
   onReset3d,
+  /** Descarga del ZIP de máscaras (F8). */
+  onDownloadExport,
+  /** Estado de la descarga, ya filtrado por estudio en App. */
+  exportPhase,
+  /** Mensaje legible cuando la descarga falla. */
+  exportMessage,
 }: {
   className?: string
   onStudySelect: (id: string) => void
@@ -93,6 +99,9 @@ export function Sidebar({
   onReset3d: () => void
   /** Abre el modal de ayuda de atajos. */
   onToggleHelp: () => void
+  onDownloadExport: () => void
+  exportPhase: 'idle' | 'preparing' | 'success' | 'error'
+  exportMessage: string | null
 }) {
   const centerHint =
     study === null
@@ -104,6 +113,24 @@ export function Sidebar({
           : metrics.lesion_components === 0
             ? 'Este estudio no tiene lesión segmentada.'
             : 'El visor aún no está listo.'
+
+  // Número de máscaras disponibles: se deriva en el render (regla 14), nunca
+  // se copia a estado con un useEffect. Cuenta solo capas kind: 'mask', no el
+  // LEEME del ZIP.
+  const maskCount = study?.layers.filter((l) => l.kind === 'mask').length ?? 0
+  const exportDisabled =
+    studyLoading || maskCount === 0 || exportPhase === 'preparing'
+  const exportHint = studyLoading
+    ? 'Cargando el estudio…'
+    : maskCount === 0
+      ? 'Este estudio no tiene máscaras para exportar.'
+      : null
+  const exportLabel =
+    exportPhase === 'preparing'
+      ? 'Preparando…'
+      : exportPhase === 'error'
+        ? 'Reintentar descarga'
+        : `Descargar todo (${maskCount})`
 
   // Contador de FPS solo para desarrollo ((import.meta as any).env.DEV). Se activa con
   // window.__lungsegFps (botón de la sección 3D o consola).
@@ -305,23 +332,73 @@ export function Sidebar({
 
         <button
           type="button"
-          disabled
-          aria-label="Descargar todo (deshabilitado hasta F8)"
+          className="ls-focusable"
+          disabled={exportDisabled}
+          aria-busy={exportPhase === 'preparing'}
+          aria-label={
+            exportPhase === 'error'
+              ? 'Reintentar descarga del ZIP de máscaras'
+              : `Descargar todo (${maskCount} máscaras)`
+          }
+          aria-describedby={exportHint ? 'ls-export-hint' : undefined}
+          title={`ZIP con ${maskCount} máscaras NIfTI y un LEEME`}
+          onClick={onDownloadExport}
           style={{
             width: '100%',
             padding: '10px',
-            border: '1px solid var(--ls-accent)',
+            border: exportDisabled
+              ? '1px solid var(--ls-disabled-text)'
+              : '1px solid var(--ls-accent)',
             borderRadius: 'var(--ls-radius)',
-            background: 'var(--ls-disabled-bg)',
-            color: 'var(--ls-disabled-text)',
+            background: exportDisabled
+              ? 'var(--ls-disabled-bg)'
+              : 'var(--ls-accent)',
+            color: exportDisabled ? 'var(--ls-disabled-text)' : '#ffffff',
             fontSize: 13,
             fontWeight: 500,
-            cursor: 'not-allowed',
+            cursor: exportDisabled ? 'not-allowed' : 'pointer',
             outline: 'none',
           }}
         >
-          Descargar todo
+          {exportLabel}
         </button>
+        {exportHint && (
+          <p
+            id="ls-export-hint"
+            style={{
+              fontSize: 11,
+              lineHeight: 1.5,
+              color: 'var(--ls-text-muted)',
+              margin: '6px 0 0',
+            }}
+          >
+            {exportHint}
+          </p>
+        )}
+        {exportPhase === 'success' && (
+          <p
+            style={{
+              fontSize: 11,
+              lineHeight: 1.5,
+              color: 'var(--ls-text-muted)',
+              margin: '6px 0 0',
+            }}
+          >
+            Descarga lista: {study?.id ?? ''}_masks.zip
+          </p>
+        )}
+        {exportPhase === 'error' && (
+          <p
+            style={{
+              fontSize: 11,
+              lineHeight: 1.5,
+              color: 'var(--ls-error)',
+              margin: '6px 0 0',
+            }}
+          >
+            No se pudo generar el ZIP: {exportMessage ?? 'Inténtalo de nuevo.'}
+          </p>
+        )}
       </div>
 
       {/* Vista 3D (solo en modo 3D o Multi). */} {/*
