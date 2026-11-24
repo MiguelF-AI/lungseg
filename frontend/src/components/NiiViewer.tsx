@@ -39,6 +39,8 @@ export interface NiiViewerHandle {
   setRadiologicalConvention: (v: boolean) => void
   /** Lee la convención actual de NiiVue. */
   getRadiologicalConvention: () => boolean
+  /** Guarda la escena actual como PNG (sin cambiar la escena ni recargar volúmenes). */
+  captureView: (filename: string) => Promise<boolean>
 }
 
 /**
@@ -95,6 +97,7 @@ export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function Ni
     setViewMode,
     setRadiologicalConvention,
     getRadiologicalConvention,
+    captureView,
     centerOnLesion,
     applyCamera,
     applyClipPlane,
@@ -111,8 +114,9 @@ export const NiiViewer = forwardRef<NiiViewerHandle, NiiViewerProps>(function Ni
       centerOnLesion,
       setRadiologicalConvention,
       getRadiologicalConvention,
+      captureView,
     }),
-    [centerOnLesion, setRadiologicalConvention, getRadiologicalConvention],
+    [centerOnLesion, setRadiologicalConvention, getRadiologicalConvention, captureView],
   )
 
   // Informar al padre de si hay volúmenes listos (sistema externo → padre).

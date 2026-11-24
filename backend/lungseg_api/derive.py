@@ -32,6 +32,9 @@ from lungseg_api.config import get_data_dir, get_storage_dir
 
 DERIVED_LAYERS = ("ct", "lung_right", "lung_left", "lesion")
 
+# Capas incluidas en la exportación ZIP (F8): nunca la CT (tamaño y privacidad).
+MASK_LAYERS = ("lung_right", "lung_left", "lesion")
+
 # Nivel de gzip para la CT derivada: 4 es un compromiso rápido/tamaño.
 # Nivel 1 deja archivos muy grandes (CTs de cientos de MB que se descargan);
 # nivel 9 es más lento y apenas reduce tamaño frente al 4 en datos de imagen
@@ -279,3 +282,25 @@ def ensure_all_layers(
         path = ensure_layer(data_dir, study_id, key)
         result[key] = DerivedLayer(key=key, path=path, mtime=os.path.getmtime(path))
     return result
+
+
+def ensure_mask_layers(
+    study_id: str, data_dir: Optional[str] = None
+) -> Dict[str, DerivedLayer]:
+    """Asegura SOLO las máscaras disponibles, con un candado por estudio (F8).
+
+    No se usa :func:`ensure_all_layers` porque generaría también la CT, que no
+    se exporta (tamaño y privacidad). El candado se toma una sola vez para que
+    dos peticiones simultáneas de exportación no generen lo mismo dos veces.
+    """
+    if data_dir is None:
+        data_dir = get_data_dir()
+    lock = _lock_for(study_id)
+    with lock:
+        result: Dict[str, DerivedLayer] = {}
+        for key in MASK_LAYERS:
+            if _source_path(data_dir, study_id, key) is None:
+                continue
+            path = _ensure_layer_locked(data_dir, study_id, key)
+            result[key] = DerivedLayer(key=key, path=path, mtime=os.path.getmtime(path))
+        return result

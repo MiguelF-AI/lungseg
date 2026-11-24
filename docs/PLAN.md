@@ -94,7 +94,7 @@ storage/derived/{id}/                # generado por la app
 | GET | `/api/studies/{id}` | `StudyDetail` |
 | GET | `/api/studies/{id}/metrics` | `Metrics` (calcula y cachea en la primera llamada) |
 | GET/HEAD | `/api/studies/{id}/files/{layer}.nii.gz` | NIfTI; soporta `If-None-Match` → 304 |
-| GET | `/api/studies/{id}/export.zip` | ZIP con las máscaras derivadas (**F8**) |
+| GET | `/api/studies/{id}/export.zip` | ZIP con las máscaras derivadas disponibles (**F8**): nombres planos `{id}_{key}.nii.gz` (`key` ∈ `lung_right`, `lung_left`, `lesion`; **nunca CT**) y `LEEME.txt` UTF-8. `ZIP_STORED`, `Content-Type: application/zip`, `Content-Disposition: attachment; filename="{id}_masks.zip"`, `Cache-Control: no-store`. 404 si el id es inválido, el estudio no existe o no hay máscaras. |
 
 ```jsonc
 // StudySummary

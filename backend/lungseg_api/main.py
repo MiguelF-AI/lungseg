@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from lungseg_api.catalog import get_study, list_studies
 from lungseg_api.metrics import read_cached_metrics
+from lungseg_api.routers.export import router as export_router
 from lungseg_api.routers.files import router as files_router
 from lungseg_api.routers.metrics import router as metrics_router
 from lungseg_api.schemas import StudyDetail, StudySummary
@@ -12,6 +13,7 @@ from lungseg_api.schemas import StudyDetail, StudySummary
 app = FastAPI(title="LungSeg API")
 app.include_router(files_router)
 app.include_router(metrics_router)
+app.include_router(export_router)
 
 app.add_middleware(
     CORSMiddleware,
