@@ -26,7 +26,7 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 | 2 | D1 | Dibujo y corrección (opcional) | U1 | ⬜ |
 | 3 | I1 | Inferencia en CPU desde la web (opcional) | U1, B2 | ⬜ |
 | 4 | Q1 | QA visual e2e (Playwright) | F6 | ⬜ |
-| 4 | Q2 | Empaquetado Docker (opcional) | F8 | ⬜ |
+| 4 | Q2 | Empaquetado Docker (opcional) | F8 | ✅ |
 
 ## 2. Bitácora de checkpoints
 
@@ -164,6 +164,18 @@ Formato de cada entrada (la más reciente arriba):
 - Cómo se verificó: `uv run ruff check` ✅, `uv run ruff format --check` ✅, `uv run pyright` (0 errores), `uv run pytest` (33 tests), `npm run build` (0 errores de tipo; advertencia de chunk >500 kB de NiiVue preexistente). **Verificación visual (a-g) NO realizada:** no dispuse de navegador para abrir la UI. La tabla de presets (azimut/elevación) queda por verificar empíricamente con el cubo de orientación en ambas convenciones (valores de partida marcados «POR VERIFICAR» en el código). Se reporta como pendiente al humano.
 - Desviaciones del plan y por qué: tabla de presets con valores de partida no verificados (no hay navegador disponible); «solo segmentaciones en 3D» implementado como opacidad CT = 0 solo en modo 3D puro (compromiso: NiiVue no permite visibilidad de volumen por tipo de corte); sin cambios en backend ni contratos §5/§6 (regla 01); sin cambiar versión de NiiVue (0.69.0, regla 08); sin mallas (puerta de decisión); sin exportar/capturas (F8).
 - Pendiente / siguiente paso: verificación visual con navegador real (valores de presets, plano de corte, lesión en 3D, arrastre sincronizado, 10 cambios de estudio con 1 canvas, atajos F5 + F4, FPS con GPU RX 6600); luego F8 y Q1.
+
+### CP-015 · 2026-11-24 · Q2
+- Qué cambió: rama `feat/Q2-docker` (desde `feat/F8-export`, commit 266fec6).
+  - `Dockerfile` (raíz): backend FastAPI sobre `python:3.11-slim`, `uv sync --frozen --no-dev`, uvicorn en `0.0.0.0:8000`; `LUNGSEG_DATA_DIR=/data` y `LUNGSEG_STORAGE_DIR=/storage`.
+  - `frontend/Dockerfile`: multi-stage (node builder `npm ci` + `npm run build`, stage `nginx:alpine` con el `dist`).
+  - `frontend/nginx.conf`: sirve el SPA (`try_files ... /index.html`) y reenvía `/api` a `http://api:8000`; `/favicon.ico` → 204.
+  - `compose.yaml`: servicios `api` (8000, red interna) y `web` (`80:80`, `depends_on: api`); volúmenes `./Data:/data:ro` y `./storage:/storage`.
+  - `.dockerignore`: excluye `node_modules`, `.venv`, `dist`, `Data`, `storage`, `.git`, caches, `.nii(.gz)`.
+  - `README.md`: sección Docker con `docker compose up --build` y notas de montaje de datos.
+- Cómo se verificó: `ruff check` ✅, `ruff format --check` ✅, `pyright` 0 errores, `pytest` 33 pasados, `npm run build` 0 errores de tipo. `docker compose build` construye ambas imágenes. `docker compose up -d` y smoke tests vía `curl` contra `http://localhost` (nginx): `/api/health` → `{"status":"ok"}`; `/api/studies` → 2 estudios de `Data/` con métricas cacheadas (15.64 % / 0.680646 L y 43.48 % / 0.946993 L); `HEAD /files/ct.nii.gz` → 200 con ETag/Last-Modified/Cache-Control: no-cache; `/api/studies/{id}` → detalle con capas y URLs; `GET /` (SPA) → 200 text/html; `GET /export.zip` → 200, 3 máscaras `{id}_{key}.nii.gz` + `LEEME.txt` UTF-8, `testzip` OK, `Content-Type: application/zip`, `Content-Disposition: attachment`; id inválido → 404, estudio inexistente → 404, traversal → 404 (directo al backend); 0 temporales en `storage/exports/`. `docker compose down` deja 0 contenedores corriendo.
+- Desviaciones del plan y por qué: ninguna respecto al alcance de Q2 (`compose.yaml` con nginx sirviendo el frontend compilado y reenviando `/api`). Q2 depende de F8 (✅ CP-014), cumplida.
+- Pendiente / siguiente paso: Q1 (QA visual e2e con Playwright). F7 sigue con la tabla de presets «POR VERIFICAR».
 
 ### CP-014 · 2026-11-23 · F8
 - Qué cambió: rama `feat/F8-export` desde `origin/main` (`0dbb938`, con N1 + F7), commits `23d7896` (backend) y `721ee33` (frontend). **Sin push a GitHub.**
