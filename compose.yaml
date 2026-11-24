@@ -1,0 +1,51 @@
+# LungSeg WebViewer — entorno reproducible con Docker Compose
+#
+# Servicios:
+#   api  : backend FastAPI (puerto 8000, solo interno a la red de compose)
+#   web  : frontend React+Vite compilado servido por nginx (puerto 80)
+#          y reenvía /api al backend.
+#
+# Uso:
+#   docker compose up --build        # levanta ambos servicios
+#   docker compose up -d             # en segundo plano
+#   docker compose down              # detiene y elimina contenedores
+#
+# Datos: ./Data se monta de solo lectura en /data y ./storage (derivados/caché)
+# se monta en /storage. Sobreescribe LUNGSEG_DATA_DIR / LUNGSEG_STORAGE_DIR
+# si necesitas otras rutas.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lungseg-api
+    restart: unless-stopped
+    environment:
+      LUNGSEG_DATA_DIR: /data
+      LUNGSEG_STORAGE_DIR: /storage
+      PORT: "8000"
+    volumes:
+      - ./Data:/data:ro
+      - ./storage:/storage
+    networks:
+      - lungseg
+    # No se expone al host: solo se alcanza a través de nginx (web)
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: lungseg-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "80:80"
+    networks:
+      - lungseg
+
+networks:
+  lungseg:
+    driver: bridge
