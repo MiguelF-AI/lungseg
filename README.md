@@ -2,14 +2,14 @@
 
 App web **local** para explorar tomografías de tórax con las segmentaciones COVID-19 generadas por el notebook del proyecto: pulmón derecho, pulmón izquierdo (R231 / `lungmask`) y tejido dañado (COPLE-Net). Backend **FastAPI**; frontend **React + Vite + TypeScript + NiiVue** como visor médico (cortes axial/coronal/sagital + 3D).
 
-> Proyecto de investigación. Las máscaras son salida de un modelo experimental. **Uso académico, no es un dispositivo médico.** No uses lenguaje diagnóstico («tumor», «diagnóstico»); di «tejido dañado» o «opacidades segmentadas».
+> Las máscaras son salida de un modelo experimental. **Uso académico, no es un dispositivo médico.** 
 
 ## Flujo completo del proyecto
 
 El proyecto se divide en tres etapas:
 
 1. **Segmentación** (`/segmentacion`): procesa las tomografías del dataset público de InRad (AWS Open Data) con R231 y COPLE-Net en GPU y sube los resultados al almacenamiento.
-2. **Entrenamiento del clasificador** (`/train`): lee esos resultados del bucket y entrena un modelo que predice la etiqueta del paciente (sano / otra enfermedad / COVID-19).
+2. **Entrenamiento del clasificador** (`/train`): lee esos resultados del bucket y entrena un modelo que predice la etiqueta del paciente (otra enfermedad / COVID-19).
 3. **Aplicación de visualización** (carpeta raíz): visor web para explorar la CT original junto con las máscaras derivadas, con cortes en 3 planos, render 3D, métricas de volumen y descarga de resultados.
 
 ---
@@ -23,7 +23,7 @@ Por cada tomografía (`.nii`) del bucket público de AWS:
 3. Calcula volumen pulmonar, volumen de tejido dañado y porcentaje que representa.
 4. Busca la etiqueta del paciente en `clinicaldata.csv` (0 = sano, 1 = otra enfermedad, 2 = COVID-19).
 5. Genera dos imágenes 2D con el contorno de la lesión en rojo: una cuadrícula de 12 cortes axiales y una vista ortogonal (axial, coronal, sagital).
-6. Opcionalmente envía métricas e imágenes a un LLM de NVIDIA (`nvidia/nemotron-3.5-super-vl-120b-a12b`, build.nvidia.com) y guarda una breve conclusión.
+6. Opcionalmente envía métricas e imágenes a un LLM de NVIDIA (`nvidia/nemotron-3.5-super-vl-120b-a12b`, build.nvidia.com) y guarda una breve conclusión (en este caso no se hizo para optimizar tiempos).
 7. Sube todo al almacenamiento y escribe un `result.json` por caso.
 
 ### Archivos
@@ -39,7 +39,7 @@ Por cada tomografía (`.nii`) del bucket público de AWS:
 ### Requisitos
 
 - **GPU NVIDIA** con PyTorch/CUDA. Probado en una **RTX 3090 (24 GB)**. Sin GPU funciona, pero es muy lento.
-- **Pesos de COPLE-Net**, `coplenet_pretrain.pt` (≈126 MB).
+- **Pesos de COPLE-Net**, `coplenet_pretrain.pt` (≈126 MB). [Aquí](https://drive.google.com/file/d/1vdDADnmzFgj3Wvn65OUzTGsqCXovErVm/view?usp=drive_link%22)
 - **Bucket compatible con S3** con permisos de lectura y escritura (Cloudflare R2, AWS S3, Backblaze B2, MinIO…).
 - **API key de NVIDIA** (build.nvidia.com), solo si vas a usar el LLM.
 - Disco suficiente en la instancia para las descargas temporales; el script borra cada tomografía al terminar su segmentación.
