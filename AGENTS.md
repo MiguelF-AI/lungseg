@@ -61,6 +61,21 @@ cd frontend && npm run build                                     # tsc -b && vit
     para desenganchar el canvas del DOM): úsalo **solo** al desmontar de verdad, nunca en el doble
     montaje de StrictMode; una instancia huérfana sigue reaccionando a eventos de resize y lanza errores.
 
+**Regla 17 — Secretos solo por entorno/Docker:**
+> Los secretos (tokens de R2, claves AWS) solo se pasan por variables de entorno o secretos de Docker. Nunca en el frontend, ni en logs, ni en Git. El archivo `.env.example` no lleva valores. El token de R2 es de solo lectura y limitado al bucket `covid-ct-results`.
+
+**Regla 18 — Almacenamiento temporal y borrado seguro:**
+> Todo lo descargado y derivado de fuentes remotas vive solo en el directorio de caché (`LUNGSEG_CACHE_DIR`). Antes de borrar cualquier archivo, resolver su ruta absoluta y comprobar que está dentro del directorio de caché; no seguir enlaces simbólicos; validar el `id` con `ID_REGEX` antes de construir cualquier ruta. Nunca se borra un caso en uso (descarga abierta o estudio cargado en el visor). Los mensajes de error nunca filtran rutas absolutas ni URLs firmadas.
+
+**Regla 19 — Descargas seguras:**
+> Las descargas usan archivo `.part` + renombrado atómico + comprobación de tamaño contra el `Content-Length`; reintentos con espera creciente y tope; tiempos límite de conexión y lectura; máximo de descargas simultáneas (2); sin rutas ni URLs firmadas en mensajes de error al cliente.
+
+**Regla 20 — Tests sin red para fuentes remotas:**
+> Los tests de clientes S3/R2 no usan red: simular S3/R2 (por ejemplo con `moto`) y un servidor HTTP falso para AWS. Las pruebas reales con un caso remoto solo se hacen con un caso y previa autorización del humano.
+
+**Ampliación de la regla 09 (seguridad de rutas):**
+> Las claves de objeto de S3/R2 se construyen solo con plantillas configuradas y `id`s validados por regex (incluidos los `id`s que vengan del CSV); nunca con texto libre del cliente.
+
 ## Definición de hecho
 
 - Se cumplen los criterios de aceptación del ticket.

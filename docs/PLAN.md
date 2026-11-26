@@ -264,3 +264,180 @@ Orden sugerido: A0 → B1 → B2 → F1 → F2 → F3 → F4 → V0 → B3 → F
 ## 11. Protocolo de checkpoints
 
 Al terminar un ticket: (1) marcar ✅ en `PROGRESS.md` y añadir `CP-NNN` con fecha, ticket, qué cambió, cómo se verificó y qué queda pendiente; (2) reescribir la sección 2 de `HANDOFF.md` con el estado actual y el siguiente paso recomendado; (3) si el trabajo queda a medias, describirlo en `HANDOFF.md` §3.
+
+## 12. Fase 5 — Fuentes remotas y caché temporal
+
+### 12.1 Objetivo y alcance
+
+Permitir elegir un caso entre los del CSV público de inLab (AWS S3, acceso anónimo, sin credenciales), descargar su CT (AWS) y sus segmentaciones (Cloudflare R2, API compatible con S3, token de solo lectura), generar los derivados (B2/B3) y abrirlo en el visor como hoy. Todo lo descargado y derivado de fuentes remotas vive solo en un directorio de caché temporal con política configurable (TTL por inactividad, número máximo de casos, tope total en bytes, expulsión LRU, purga al arrancar y botón «Liberar espacio»). El modo local (`Data/`) sigue funcionando sin cambios ni credenciales.
+
+Dentro de la Fase 5:
+- Catálogo unificado de casos locales (`Data/`) y remotos (CSV), con búsqueda y paginación en el servidor.
+- Cada caso muestra si tiene segmentaciones en R2 (listado por prefijo `ct/` con delimitador, paginado y cacheado con TTL) y si está preparado en el caché.
+- Preparación de un caso no listo: descarga CT (AWS) + segmentaciones (R2), derivados (B2/B3), progreso por etapas, cancelar y reintentar. Al terminar se abre en el visor.
+- Caso sin segmentación en R2: se ve solo la CT con aviso claro.
+- Caché temporal con política de retención y borrado seguro.
+- Configuración por variables de entorno; secretos nunca en el frontend, logs ni Git.
+
+Fuera de la Fase 5:
+- Autenticación, multiusuario, base de datos, DICOM, subida de estudios desde la web, inferencia desde la web (Fase 2/3).
+- Cambiar el comportamiento del modo local cuando `LUNGSEG_SOURCE=local`.
+
+### 12.2 Decisiones de arquitectura y alternativas descartadas
+
+| # | Decisión | Motivo / alternativa descartada |
+|---|----------|---------------------------------|
+| D5.1 | `LUNGSEG_SOURCE = local \| remote \| both` (default `both`) | `local` mantendría el comportamiento actual; `both` muestra casos locales y remotos desde el arranque sin romper instalaciones existentes. |
+| D5.2 | Directorio de caché temporal `LUNGSEG_CACHE_DIR` (default `storage/cache`) separado de `storage/derived/` | Los derivados de casos locales siguen en `storage/derived/` (B2/B3 sin tocar); lo remoto vive solo en caché, fácil de purgar por completo. |
+| D5.3 | Reusar la lógica de derivación de B2/B3 apuntando `LUNGSEG_DATA_DIR` al caché del caso | No se duplica código de máscaras/métricas; el caso descargado se trata como una "fuente" temporal. |
+| D5.4 | No conservar el `.nii` crudo de la CT tras derivar: comprimir al vuelo a `ct.nii.gz` mientras se descansa | CTs de cientos de MB en disco limitado. Alternativa descartada: guardar `ct.nii` crudo y borrarlo tras derivar (pico de disco 2×, solo se gana CPU). |
+| D5.5 | Claves de R2/S3 solo por plantillas configurables + id validado por regex | Los nombres reales en R2 son `lung_mask.nii.gz` y `lesion_mask.nii.gz` dentro de `ct/{hash}/`, no `{id}_lung.nii.gz`; las plantillas evitan suponer y evitan inyección de rutas (regla 09 ampliada). |
+| D5.6 | Preparación asíncrona con job y endpoint de estado/progreso (cola interna, sin nuevas dependencias) | La descarga de una CT (cientos de MB) y la derivación tardan segundos; la API no debe bloquear. Cola externa (Redis/arq) descartada por ahora. |
+| D5.7 | Paginación y búsqueda del catálogo en el servidor | El CSV tiene 1294 casos y puede crecer; traer todos los ids al frontend no escala. |
+| D5.8 | Tests sin red: moto para S3/R2 + servidor HTTP falso para AWS | La regla 06 prohíbe red en tests; las pruebas reales con un caso remoto solo con autorización previa del humano. |
+
+Compromiso CT cruda (D5.4): comprimir al vuelo gasta CPU durante la descarga pero evita tener dos copias (cruda + `.gz`) en disco a la vez. En la máquina objetivo (16 GB RAM, disco compartido con `storage/`) es la opción más segura.
+
+### 12.3 Contrato de configuración
+
+Variables de entorno (backend; se pasan también a `compose.yaml` y al `Dockerfile`):
+
+| Variable | Obligatoria | Default | Descripción |
+|---|---|---|---|
+| `LUNGSEG_SOURCE` | No | `both` | `local` \| `remote` \| `both`. Fuente de casos para el catálogo. |
+| `LUNGSEG_DATA_DIR` | No | `./Data` | Directorio de fuentes locales (B1, sin cambios). |
+| `LUNGSEG_STORAGE_DIR` | No | `./storage` | Directorio de derivados locales y raíz del caché. |
+| `LUNGSEG_CACHE_DIR` | No | `{LUNGSEG_STORAGE_DIR}/cache` | Directorio de caché temporal para casos remotos. |
+| `LUNGSEG_CACHE_TTL_MIN` | No | `30` | TTL de inactividad (minutos) antes de expirar un caso del caché. |
+| `LUNGSEG_CACHE_MAX_CASES` | No | `3` | Número máximo de casos retenidos en el caché. |
+| `LUNGSEG_CACHE_MAX_BYTES` | No | `4294967296` (4 GB) | Tope total en bytes del caché. |
+| `LUNGSEG_CACHE_PURGE_ON_START` | No | `true` | Purga el caché al arrancar la API. |
+| `LUNGSEG_CACHE_MAX_CONCURRENT_DOWNLOADS` | No | `2` | Máximo de descargas simultáneas (CT + segmentaciones). |
+| `LUNGSEG_REMOTE_BASE` | Sí si `remote`/`both` | — | Base AWS S3 pública: `https://inlab-opendata-covid-anonymized-images.s3.us-west-2.amazonaws.com/chest_ct` |
+| `LUNGSEG_REMOTE_CSV_TEMPLATE` | No | `{base}/metadata/clinicaldata.csv` | Plantilla con `{base}` para el CSV de metadatos. |
+| `LUNGSEG_REMOTE_CT_TEMPLATE` | No | `{base}/images/{id}.nii` | Plantilla con `{base}` y `{id}` para la CT de un caso. |
+| `LUNGSEG_R2_ENDPOINT` | Sí si `remote`/`both` | `https://0c05fdf08be0e1e5280c6728598341b9.r2.cloudflarestorage.com` | Endpoint S3-compatible de Cloudflare R2. |
+| `LUNGSEG_R2_BUCKET` | Sí si `remote`/`both` | `covid-ct-results` | Bucket de segmentaciones. |
+| `LUNGSEG_R2_KEY_READ` | Sí si `remote`/`both` | — | Token de solo lectura, limitado al bucket (secreto, solo env/Docker). |
+| `LUNGSEG_R2_KEY_LUNG_TEMPLATE` | No | `ct/{id}/lung_mask.nii.gz` | Plantilla de clave de la máscara de pulmón (campo `{id}`). |
+| `LUNGSEG_R2_KEY_LESION_TEMPLATE` | No | `ct/{id}/lesion_mask.nii.gz` | Plantilla de clave de la máscara de lesión (campo `{id}`). |
+
+Ejemplo `.env` (sin valores, solo nombres; no se comitea):
+```
+LUNGSEG_SOURCE=both
+LUNGSEG_CACHE_DIR=./storage/cache
+LUNGSEG_CACHE_TTL_MIN=30
+LUNGSEG_CACHE_MAX_CASES=3
+LUNGSEG_CACHE_MAX_BYTES=4294967296
+LUNGSEG_CACHE_PURGE_ON_START=true
+LUNGSEG_REMOTE_BASE=https://inlab-opendata-covid-anonymized-images.s3.us-west-2.amazonaws.com/chest_ct
+LUNGSEG_R2_ENDPOINT=https://0c05fdf08be0e1e5280c6728598341b9.r2.cloudflarestorage.com
+LUNGSEG_R2_BUCKET=covid-ct-results
+LUNGSEG_R2_KEY_READ=<solo en entorno o secreto de Docker>
+```
+
+### 12.4 Contrato de API (prefijo `/api`)
+
+Cambios sobre §6 (regla 01: actualizar `schemas.py`, `types.ts` y `PLAN.md` en el mismo cambio).
+
+**Extensiones de `StudySummary` y `StudyDetail`:**
+```jsonc
+// StudySummary (ampliada en Fase 5)
+{ "id": "…",
+  "source": "local",          // "local" | "remote"
+  "layers": ["ct","lung_right","lung_left","lesion"],
+  "lesion_pct": 3.4,          // solo desde métricas cacheadas; null si no hay
+  "lesion_l": 0.12,
+  "masks_remote": true,       // ¿tiene segmentaciones listadas en R2?
+  "prepared": false           // ¿tiene derivados listos en caché para ver en el visor?
+}
+
+// StudyDetail (ampliada en Fase 5): idem + source, masks_remote, prepared
+```
+
+**Nuevos endpoints:**
+
+| Método | Ruta | Respuesta / comportamiento |
+|---|---|---|
+| GET | `/api/catalog?source=&search=&page=&page_size=` | `PaginatedCatalog` con `items` (`StudySummary` ampliada), `total`, `page`, `page_size`. Búsqueda por subcadena de `id` (sin mayúsculas). `source` filtra `local`/`remote`/`both`. Paginación en servidor. |
+| POST | `/api/prepare/{id}` | Inicia la preparación de un caso remoto (descarga CT + segmentaciones, derivados B2/B3). Devuelve `{ job_id, status: "queued" }`. 404 si id inválido o caso no existe en el catálogo. 409 si ya se está preparando. |
+| GET | `/api/prepare/{job_id}/status` | `{ job_id, status, stage, progress_pct, bytes_done, bytes_total, error }`. Etapas: `ct_downloading`, `ct_done`, `masks_downloading`, `masks_done`, `deriving`, `done`, `error`, `cancelled`. Progreso por etapas (CT con bytes, segmentaciones, preparación). |
+| DELETE | `/api/prepare/{job_id}` | Cancela la preparación en curso. 404 si el job no existe; 400 si ya terminó. |
+| POST | `/api/cache/purge` | "Liberar espacio": aplica expulsión LRU hasta respetar `MAX_CASES`/`MAX_BYTES`/TTL. Nunca borra un caso en uso (descarga abierta o estudio cargado en el visor). Devuelve `{ freed_cases, freed_bytes }`. |
+| GET | `/api/cache/stats` | `{ cases, bytes, ttl_min, max_cases, max_bytes, purge_on_start }` |
+
+`GET /api/studies` y `GET /api/studies/{id}` siguen funcionando en modo local; en modo `remote`/`both` devuelven también casos remotos preparados y rellenan `source`/`masks_remote`/`prepared`. `lesion_pct`/`lesion_l` solo desde métricas cacheadas (como hoy, nunca calculan en el listado).
+
+### 12.5 Diagrama de estados de un caso
+
+```
+        ┌──────────────┐
+        │ no preparado │  (en catálogo, sin derivados; listo para verse solo CT si no hay lesión)
+        └──────┬───────┘
+               │ elegir / preparar
+               ▼
+        ┌──────────────┐
+        │ descargando  │──┐  CT (con bytes) + segmentaciones (R2); cancelable
+        └──────┬───────┘  │
+               │ OK       │ cancelar / fallo
+               ▼          ▼
+        ┌──────────────┐  ┌──────────┐
+        │ derivando    │  │ error    │◄── reintentar
+        └──────┬───────┘  └──────────┘
+               │ OK
+               ▼
+        ┌──────────────┐
+        │ listo        │────┐  derivados en caché; visible en el visor
+        └──────┬───────┘    │  (TTL de inactividad arranca al verse)
+               │ se ve      │ expira (TTL) / LRU / "liberar espacio"
+               │ (reinicia  │
+               │  TTL)      ▼
+        ┌──────────────┐ ┌───────────┐
+        │ expirado     │◄─┤           │  derivados borrados, queda metadato;
+        └──────┬───────┘ │           │  se re-prepara de forma transparente al verlo
+               │ re-preparar └───────┘
+               ▼
+             (vuelve a listo)
+```
+
+"Caso en uso" = descarga abierta en ese job o estudio actualmente cargado en el visor del frontend; esos casos quedan excluidos de la expulsión/purga.
+
+### 12.6 Contrato del caché temporal
+
+- Ubicación: `LUNGSEG_CACHE_DIR` (default `storage/cache`). Estructura por caso: `cache/{id}/` con `ct.nii.gz`, `lung_right.nii.gz`, `lung_left.nii.gz`, `lesion.nii.gz` (si existen), `metrics.json`, `meta.json` (fuente, tamaño, última sesión de uso, bytes totales).
+- Política de retención: TTL por inactividad (se renueva cada vez que el caso se abre en el visor), número máximo de casos, tope total en bytes, expulsión LRU (el menos usado se borra primero), purga al arrancar si está habilitado, botón «Liberar espacio» que ejecuta la expulsión bajo demanda.
+- Borrado seguro (regla ampliada): antes de borrar, resolver la ruta absoluta, comprobar que está dentro de `LUNGSEG_CACHE_DIR`, no seguir enlaces simbólicos, validar el `id` con `ID_REGEX` antes de construir cualquier ruta. Nunca se borra un caso en uso.
+- Si un caso expira mientras el usuario lo ve, el frontend detecta que los derivados ya no están y lo re-prepara de forma transparente (descarga + derivado de nuevo).
+- El `.nii` crudo de la CT no se conserva: se comprime al vuelo a `ct.nii.gz` durante la descarga (o se borra el crudo tan pronto existe el derivado); véase el compromiso D5.4.
+
+### 12.7 Tickets de la Fase 5
+
+| Ticket | Descripción | Depende de | Estado |
+|---|---|---|---|
+| R1 | Caché temporal y configuración (variables, política de retención, borrado seguro, `cache/stats`, `cache/purge`) | A0, B2, B3 | ⬜ |
+| R2 | Cliente AWS público (CSV y CT con progreso, `.part` + atómico, reintentos, timeouts, servidor HTTP falso en tests) | R1 | ⬜ |
+| R3 | Cliente R2 (listado por prefijo `ct/` con delimitador paginado+cacheado TTL, descarga de máscaras, plantillas de clave configurables, moto en tests) | R1 | ⬜ |
+| R4 | Catálogo y preparación en el backend (`/api/catalog`, `/api/prepare`, estado/progreso, cancelar, integración B1-B3, modo local intacto, cambios en `StudySummary`/`StudyDetail`) | R1, R2, R3, B1-B3 | ⬜ |
+| R5 | Frontend (selector de casos del CSV con búsqueda/paginación, progreso por etapas, cancelar, liberar espacio; comportamiento de atajos `[` `]` `,` `.` sobre catálogo grande) | R4, F1-F6 | ⬜ |
+| R6 | Docker/compose (variables, secretos, volumen del caché, límites, healthcheck, README) | R1, Q2 | ⬜ |
+
+Criterios de aceptación medibles (ejemplos):
+- R1: tests sin red verifican TTL, max casos, max bytes, expulsión LRU, purga al arrancar, borrado seguro (ruta fuera de caché no se borra, symlink no se sigue), y que nunca se borra un caso marcado como en uso.
+- R2: descarga de CT de prueba con progreso de bytes, reintentos con espera creciente y tope, archivo `.part` renombrado atómicamente, comprobación de tamaño contra `Content-Length`, máximo 2 descargas simultáneas, sin URLs firmadas en errores.
+- R3: listado paginado de R2 con delimitador, cacheado con TTL, plantillas de clave respetadas, descarga de máscaras.
+- R4: `GET /api/catalog` paginado y con búsqueda devuelve casos locales y remotos; `POST /api/prepare` + `/status` completa un caso remoto y lo deja `prepared`; modo local (`LUNGSEG_SOURCE=local`) idéntico a hoy.
+- R5: el selector muestra búsqueda y contador n/total del catálogo; los atajos navegan por la página filtrada actual; progreso, cancelar y «Liberar espacio» tienen estados claros en la UI.
+- R6: `docker compose up --build` levanta API + frontend; `/api/health`, `/api/catalog` y `/api/cache/stats` responden a través de nginx; el volumen del caché se monta y los secretos solo por env.
+
+### 12.8 Riesgos y preguntas abiertas (Fase 5)
+
+| ID | Riesgo / pregunta | Estado |
+|----|-------------------|--------|
+| F5-R1 | ¿Se prefiere comprimir la CT al vuelo (menos disco, más CPU) o guardar crudo y borrar tras derivar? | Resuelto: comprimir al vuelo (D5.4). |
+| F5-R2 | Default de `LUNGSEG_SOURCE`: ¿`local` o `both`? | Resuelto: `both` (D5.1). |
+| F5-R3 | Estructura real de claves en R2: ¿cómo se nombran los archivos dentro de `ct/{hash}/`? | Resuelto: `lung_mask.nii.gz` y `lesion_mask.nii.gz` (plantillas en D5.5). |
+| F5-R4 | ¿Qué indica `type` del CSV (0 = sano, 1 = otra enfermedad, 2 = covid)? ¿Sirve para filtrar o etiquetar en el menú? | Abierto: por ahora se ignora; el menú muestra solo `id` (abreviado). |
+| F5-R5 | ¿Cuántos casos se esperan en el CSV en producción y qué tamaño medio tienen las CT? (impacta `MAX_CASES`/`MAX_BYTES`). | Abierto: defaults 3 casos / 4 GB. |
+| F5-R6 | Preparación asíncrona: ¿cola interna (propuesta) o externa (Redis/arq)? | Resuelto: cola interna sin nuevas dependencias (D5.6). |
+
+**Preguntas abiertas pendientes (resolver con el humano antes del ticket indicado):** ¿se quiere usar `type` del CSV para filtrar o etiquetar casos en el menú? (R5) · ¿cuántos casos y qué tamaño medio de CT en producción? (R1).

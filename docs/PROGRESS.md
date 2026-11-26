@@ -27,6 +27,12 @@ Leyenda: ⬜ pendiente · 🟨 en curso · ✅ hecho · ⏸ bloqueado
 | 3 | I1 | Inferencia en CPU desde la web (opcional) | U1, B2 | ⬜ |
 | 4 | Q1 | QA visual e2e (Playwright) | F6 | ⬜ |
 | 4 | Q2 | Empaquetado Docker (opcional) | F8 | ✅ |
+| 5 | R1 | Caché temporal y configuración | A0, B2, B3 | ⬜ |
+| 5 | R2 | Cliente AWS público (CSV y CT con progreso) | R1 | ⬜ |
+| 5 | R3 | Cliente R2 (listado y descarga) | R1 | ⬜ |
+| 5 | R4 | Catálogo y preparación en el backend | R1, R2, R3, B1-B3 | ⬜ |
+| 5 | R5 | Frontend (selector CSV, progreso, cancelar, liberar) | R4, F1-F6 | ⬜ |
+| 5 | R6 | Docker/compose (variables, secretos, volumen caché, healthcheck, README) | R1, Q2 | ⬜ |
 
 ## 2. Bitácora de checkpoints
 
