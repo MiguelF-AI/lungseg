@@ -1,0 +1,9 @@
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+nibabel
+boto3
+joblib
+python-dotenv   # opcional: carga automáticamente un archivo .env

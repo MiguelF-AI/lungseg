@@ -1,0 +1,28 @@
+# Credenciales: NUNCA subir
+.env
+*.env
+covid.env
+
+# Resultados y datos generados
+resultados/
+output/
+work/
+work_*/
+bench*/
+check/
+*.joblib
+*.log
+errors.jsonl
+clinicaldata.csv
+launcher.log
+
+# Pesos y código descargado automáticamente
+coplenet_pretrain.pt
+coplenet.py
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/

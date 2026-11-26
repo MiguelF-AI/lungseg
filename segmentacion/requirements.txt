@@ -1,0 +1,11 @@
+numpy
+scipy
+pandas
+pillow
+scikit-image
+SimpleITK
+boto3
+openai
+monai[nibabel]
+lungmask
+# torch ya viene en las plantillas PyTorch de vast.ai; si no, instala la versión con CUDA que corresponda.
